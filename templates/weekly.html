@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+
+{% block title %}Weekly Totals - Cleaning Time Logger{% endblock %}
+
+{% macro wage_share(amount) -%}
+    {% if category_totals.grand_total > 0 %}
+        <span class="text-muted ms-1">({{ "%.1f"|format(amount / category_totals.grand_total * 100) }}%)</span>
+    {% endif %}
+{%- endmacro %}
+
+{% block extra_css %}
+<style>
+    .staff-toggle-btn {
+        width: 1.75rem;
+        height: 1.75rem;
+        padding: 0;
+        line-height: 1;
+    }
+    .staff-toggle-btn[aria-expanded="true"] .fa-chevron-right {
+        transform: rotate(90deg);
+    }
+    .staff-toggle-btn .fa-chevron-right {
+        transition: transform 0.2s ease;
+    }
+    .staff-summary-row {
+        background-color: #f8f9fa;
+    }
+    .week-detail-row td {
+        border-top: none;
+        padding-top: 0.35rem;
+        padding-bottom: 0.35rem;
+    }
+    .week-detail-row td:first-child {
+        padding-left: 2.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-calendar-week me-2"></i>Weekly Totals
+                </h5>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Home
+                </a>
+            </div>
+            <div class="card-body">
+                <!-- Filter Form -->
+                <form method="GET" action="{{ url_for('weekly_totals') }}" class="mb-4" id="weekly-filter-form">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-2">
+                            <label for="year" class="form-label">Year</label>
+                            <select class="form-select" id="year" name="year" onchange="this.form.submit()">
+                                <option value="">All Years</option>
+                                {% for year in available_years %}
+                                <option value="{{ year }}" {% if filter_year == year %}selected{% endif %}>{{ year }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="month" class="form-label">Month</label>
+                            <select class="form-select" id="month" name="month" onchange="this.form.submit()">
+                                <option value="">All Months</option>
+                                {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                                {% for month_num in available_months %}
+                                <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names[month_num] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="date_from" class="form-label">From date</label>
+                            <input type="date" class="form-control" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() if filter_date_from else '' }}" onchange="this.form.submit()">
+                        </div>
+                        <div class="col-md-2">
+                            <label for="date_to" class="form-label">To date</label>
+                            <input type="date" class="form-control" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() if filter_date_to else '' }}" onchange="this.form.submit()">
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <a href="{{ url_for('weekly_totals') }}" class="btn btn-secondary" title="Reset to the current month">
+                                <i class="fas fa-calendar-day me-2"></i>Current Month
+                            </a>
+                        </div>
+                    </div>
+                </form>
+
+                {% if filter_year or filter_month or filter_date_from or filter_date_to %}
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-filter me-2"></i>
+                    <strong>Filtered:</strong>
+                    {% if filter_date_from or filter_date_to %}
+                        Showing logs
+                        {% if filter_date_from and filter_date_to %}
+                            from {{ filter_date_from.strftime('%d %b %Y') }} to {{ filter_date_to.strftime('%d %b %Y') }}
+                        {% elif filter_date_from %}
+                            from {{ filter_date_from.strftime('%d %b %Y') }} onward
+                        {% else %}
+                            up to {{ filter_date_to.strftime('%d %b %Y') }}
+                        {% endif %}
+                    {% elif filter_year and filter_month %}
+                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                        Showing logs for {{ month_names[filter_month] }} {{ filter_year }}
+                        {% if using_default_filter %}<span class="text-muted">(current month)</span>{% endif %}
+                    {% elif filter_year %}
+                        Showing logs for year {{ filter_year }}
+                    {% elif filter_month %}
+                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                        Showing logs for {{ month_names[filter_month] }} (all years)
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if weekly_data %}
+                    <p class="text-muted small mb-3">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Click a staff member to expand or hide their weekly hours.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>FOH Staff</th>
+                                    <th>Category</th>
+                                    <th>Week</th>
+                                    <th>Total Entries</th>
+                                    <th>Hours Logged</th>
+                                    <th>Rate</th>
+                                    <th>Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for category_name, staff_members in weekly_data.items() %}
+                                    {% if staff_members %}
+                                    <tr class="table-group-header">
+                                        <td colspan="7" class="bg-light fw-bold text-uppercase py-2 border-top">
+                                            <i class="fas fa-tag me-2"></i>{{ category_name }}:
+                                        </td>
+                                    </tr>
+                                    {% for cleaner_name, cleaner_data in staff_members.items() %}
+                                        {% set staff_slug = (category_name ~ '-' ~ cleaner_name)|replace(' ', '-')|replace("'", '')|replace(',', '')|lower %}
+                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, week_count=0) %}
+                                        {% for week_key, week_data in cleaner_data['weeks'].items() %}
+                                            {% set ns.total_hours = ns.total_hours + week_data['hours'] %}
+                                            {% set ns.total_entries = ns.total_entries + week_data['entries'] %}
+                                            {% set ns.total_pay = ns.total_pay + week_data['total'] %}
+                                            {% set ns.week_count = ns.week_count + 1 %}
+                                        {% endfor %}
+                                        <tr class="staff-summary-row">
+                                            <td>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-sm btn-outline-secondary staff-toggle-btn"
+                                                        data-bs-toggle="collapse"
+                                                        data-bs-target=".week-detail-{{ staff_slug }}"
+                                                        aria-expanded="false"
+                                                        aria-controls="week-detail-{{ staff_slug }}"
+                                                        title="Show weekly breakdown"
+                                                    >
+                                                        <i class="fas fa-chevron-right"></i>
+                                                    </button>
+                                                    <span class="badge bg-primary">{{ cleaner_name }}</span>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary">{{ cleaner_data['category'] }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="text-muted">{{ ns.week_count }} week{% if ns.week_count != 1 %}s{% endif %}</span>
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold text-success">{{ ns.total_entries }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold text-info">{{ "%.2f"|format(ns.total_hours) }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="text-muted">—</span>
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold text-success">R{{ "%.2f"|format(ns.total_pay) }}</span>
+                                            </td>
+                                        </tr>
+                                        {% for week_key, week_data in cleaner_data['weeks'].items() %}
+                                        <tr class="week-detail-row week-detail-{{ staff_slug }} collapse">
+                                            <td>
+                                                <small class="text-muted">{{ cleaner_name }}</small>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-secondary">{{ cleaner_data['category'] }}</span>
+                                            </td>
+                                            <td>{{ week_key }}</td>
+                                            <td>
+                                                <span class="fw-bold text-success">{{ week_data['entries'] }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold text-info">{{ "%.2f"|format(week_data['hours']) }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="text-info">{{ week_data['rate_label'] }}</span>
+                                            </td>
+                                            <td>
+                                                <span class="fw-bold text-success">R{{ "%.2f"|format(week_data['total']) }}</span>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    {% endfor %}
+                                    {% endif %}
+                                {% endfor %}
+                                {% if weekly_data %}
+                                <tr class="table-group-header border-top-3">
+                                    <td colspan="7" class="bg-light fw-bold py-2 border-top-3">
+                                        <i class="fas fa-calculator me-2"></i>Category Totals:
+                                    </td>
+                                </tr>
+                                <tr class="bg-light">
+                                    <td colspan="2" class="fw-bold">Bartenders Total</td>
+                                    <td colspan="4"></td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.bartenders) }}{{ wage_share(category_totals.bartenders) }}</td>
+                                </tr>
+                                <tr class="bg-light">
+                                    <td colspan="2" class="fw-bold">Waiters Total</td>
+                                    <td colspan="4"></td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.waiters) }}{{ wage_share(category_totals.waiters) }}</td>
+                                </tr>
+                                <tr class="bg-light">
+                                    <td colspan="2" class="fw-bold">Runners Total</td>
+                                    <td colspan="4"></td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.runners) }}{{ wage_share(category_totals.runners) }}</td>
+                                </tr>
+                                <tr class="bg-light">
+                                    <td colspan="2" class="fw-bold">Manager Total</td>
+                                    <td colspan="4"></td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.managers) }}{{ wage_share(category_totals.managers) }}</td>
+                                </tr>
+                                <tr class="bg-light">
+                                    <td colspan="2" class="fw-bold">Retail Total</td>
+                                    <td colspan="4"></td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.retail) }}{{ wage_share(category_totals.retail) }}</td>
+                                </tr>
+                                {% for category_name, category_total in category_totals.custom.items()|sort %}
+                                <tr class="bg-light">
+                                    <td colspan="2" class="fw-bold">{{ category_name }} Total</td>
+                                    <td colspan="4"></td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_total) }}{{ wage_share(category_total) }}</td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="table-group-header border-top-3">
+                                    <td colspan="2" class="bg-primary text-white fw-bold py-2 border-top-3">
+                                        <i class="fas fa-coins me-2"></i>Grand Total
+                                    </td>
+                                    <td colspan="4" class="bg-primary text-white"></td>
+                                    <td class="bg-primary text-white fw-bold py-2 border-top-3">R{{ "%.2f"|format(category_totals.grand_total) }} <span class="fw-normal">(100%)</span></td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if category_totals.grand_total > 0 %}
+                    <div class="row mt-4">
+                        <div class="col-12 col-lg-6 mx-auto">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h6 class="card-title mb-0">
+                                        <i class="fas fa-chart-pie me-2"></i>Wage Bill by Category
+                                    </h6>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="categoryPieChart" style="max-height: 320px;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No weekly data found. Start by logging some shifts or time entries!</p>
+                        <a href="{{ url_for('log_form') }}" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>Log Entry
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if weekly_data and category_totals.grand_total > 0 %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const pieSlices = [
+        { label: 'Bartenders', value: {{ category_totals.bartenders }} },
+        { label: 'Waiters', value: {{ category_totals.waiters }} },
+        { label: 'Runners', value: {{ category_totals.runners }} },
+        { label: 'Managers', value: {{ category_totals.managers }} },
+        { label: 'Retail', value: {{ category_totals.retail }} },
+        {% for category_name, category_total in category_totals.custom.items()|sort %}
+        { label: {{ category_name|tojson }}, value: {{ category_total }} },
+        {% endfor %}
+    ].filter(function(slice) { return slice.value > 0; });
+
+    if (!pieSlices.length) {
+        return;
+    }
+
+    const colors = [
+        '#3498db', '#2ecc71', '#9b59b6', '#e67e22', '#1abc9c',
+        '#e74c3c', '#f1c40f', '#34495e', '#16a085', '#d35400'
+    ];
+
+    const canvas = document.getElementById('categoryPieChart');
+    new Chart(canvas, {
+        type: 'pie',
+        data: {
+            labels: pieSlices.map(function(slice) { return slice.label; }),
+            datasets: [{
+                data: pieSlices.map(function(slice) { return slice.value; }),
+                backgroundColor: pieSlices.map(function(_, index) {
+                    return colors[index % colors.length];
+                }),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const value = context.parsed;
+                            const total = context.dataset.data.reduce(function(sum, amount) {
+                                return sum + amount;
+                            }, 0);
+                            const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                            return context.label + ': R' + value.toFixed(2) + ' (' + pct + '%)';
+                        }
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,659 @@
+{% extends "base.html" %}
+
+{% block title %}Manage Logs - Cleaning Time Logger{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-list-alt me-2"></i>Manage Logs by Category
+                </h5>
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                    </a>
+                    <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStaffModal">
+                        <i class="fas fa-user-plus me-2"></i>Add Staff
+                    </button>
+                    <a href="{{ url_for('log_form') }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-plus me-2"></i>Log Shift / Time
+                    </a>
+                    <form method="POST" action="{{ url_for('clear_db') }}" class="d-inline"
+                          onsubmit="return confirm('Clear the entire database?\n\nThis will delete ALL staff and ALL logged entries. This cannot be undone.');">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="fas fa-trash-alt me-2"></i>Clear DB
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if monthly_data_by_category %}
+                    <div class="row">
+                        {% for category_name in display_categories %}
+                            {% set category_data = monthly_data_by_category.get(category_name, {}) %}
+                            <div class="col-md-3 mb-4">
+                                <div class="card h-100">
+                                    <div class="card-header bg-primary text-white">
+                                        <h6 class="card-title mb-0">
+                                            <i class="fas fa-tag me-2"></i>{{ category_name }}
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+                                        {% if category_data %}
+                                            {% for cleaner_name, months in category_data.items() %}
+                                                <div class="mb-3 border-bottom pb-2">
+                                                    <h6 class="fw-bold mb-2">
+                                                        <span class="badge bg-secondary">{{ cleaner_name }}</span>
+                                                    </h6>
+                                                    {% for month_key, data in months.items() %}
+                                                        <div class="mb-2">
+                                                            <div class="d-flex justify-content-between align-items-center">
+                                                                <div>
+                                                                    {% set year, month = month_key.split('-') %}
+                                                                    {% set month_names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+                                                                    <small class="text-muted">{{ month_names[month|int] }} {{ year }}</small>
+                                                                </div>
+                                                                <div class="d-flex gap-1">
+                                                                    <span class="badge bg-success">{{ data.entry_total }} entries</span>
+                                                                    {% if data.hours_total > 0 %}
+                                                                    <span class="badge bg-info text-dark">{{ "%.2f"|format(data.hours_total) }} hrs</span>
+                                                                    {% endif %}
+                                                                    <button type="button" class="btn btn-sm btn-outline-info" 
+                                                                            data-bs-toggle="collapse" 
+                                                                            data-bs-target="#shifts-{{ category_name|replace(' ', '-') }}-{{ cleaner_name|replace(' ', '-') }}-{{ month_key }}"
+                                                                            aria-expanded="false"
+                                                                            style="padding: 0.2rem 0.4rem; font-size: 0.75rem;"
+                                                                            title="View logs">
+                                                                        <i class="fas fa-eye"></i>
+                                                                    </button>
+                                                                    {% if data.entries|length > 0 %}
+                                                                    <button type="button" class="btn btn-sm btn-outline-primary edit-month-btn" 
+                                                                            data-log-id="{{ data.entries[0].id }}"
+                                                                            data-cleaner-id="{{ data.entries[0].cleaner_id }}"
+                                                                            data-date="{{ data.entries[0].date.strftime('%Y-%m-%d') }}"
+                                                                            data-log-type="{{ data.entries[0].log_type }}"
+                                                                            data-start-time="{{ data.entries[0].start_time.strftime('%H:%M') if data.entries[0].start_time else '' }}"
+                                                                            data-end-time="{{ data.entries[0].end_time.strftime('%H:%M') if data.entries[0].end_time else '' }}"
+                                                                            data-hours-worked="{{ "%.2f"|format(data.entries[0].hours_worked) if data.entries[0].hours_worked else '' }}"
+                                                                            data-notes="{{ data.entries[0].notes if data.entries[0].notes else '' }}"
+                                                                            data-cleaner-name="{{ cleaner_name }}"
+                                                                            style="padding: 0.2rem 0.4rem; font-size: 0.75rem;"
+                                                                            title="Edit first log">
+                                                                        <i class="fas fa-edit"></i>
+                                                                    </button>
+                                                                    {% endif %}
+                                                                </div>
+                                                            </div>
+                                                            <div class="collapse mt-2" id="shifts-{{ category_name|replace(' ', '-') }}-{{ cleaner_name|replace(' ', '-') }}-{{ month_key }}">
+                                                                <div class="small">
+                                                                    {% for entry in data.entries %}
+                                                                        <div class="d-flex justify-content-between align-items-start mb-1 p-1 bg-light rounded">
+                                                                            <div class="flex-grow-1">
+                                                                                <div class="fw-bold">
+                                                                                    {{ entry.date.strftime('%Y-%m-%d') }}
+                                                                                    {% if entry.log_type == 'time' %}
+                                                                                    <span class="badge bg-info text-dark ms-1">Time</span>
+                                                                                    {% else %}
+                                                                                    <span class="badge bg-secondary ms-1">Shift</span>
+                                                                                    {% endif %}
+                                                                                </div>
+                                                                                {% if entry.log_type == 'time' and entry.start_time and entry.end_time %}
+                                                                                    <div class="text-muted" style="font-size: 0.7rem;">
+                                                                                        {{ entry.start_time.strftime('%H:%M') }} - {{ entry.end_time.strftime('%H:%M') }}
+                                                                                        ({{ "%.2f"|format(entry.hours_worked) }} hrs)
+                                                                                    </div>
+                                                                                {% endif %}
+                                                                                {% if entry.notes %}
+                                                                                    <div class="text-muted" style="font-size: 0.7rem;">{{ entry.notes[:30] }}{% if entry.notes|length > 30 %}...{% endif %}</div>
+                                                                                {% endif %}
+                                                                            </div>
+                                                                            <div class="ms-2 d-flex gap-1">
+                                                                                <button type="button" class="btn btn-sm btn-outline-primary edit-btn" 
+                                                                                        data-log-id="{{ entry.id }}"
+                                                                                        data-cleaner-id="{{ entry.cleaner_id }}"
+                                                                                        data-date="{{ entry.date.strftime('%Y-%m-%d') }}"
+                                                                                        data-log-type="{{ entry.log_type }}"
+                                                                                        data-start-time="{{ entry.start_time.strftime('%H:%M') if entry.start_time else '' }}"
+                                                                                        data-end-time="{{ entry.end_time.strftime('%H:%M') if entry.end_time else '' }}"
+                                                                                        data-hours-worked="{{ "%.2f"|format(entry.hours_worked) if entry.hours_worked else '' }}"
+                                                                                        data-notes="{{ entry.notes if entry.notes else '' }}"
+                                                                                        data-cleaner-name="{{ cleaner_name }}"
+                                                                                        style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"
+                                                                                        title="Edit log">
+                                                                                    <i class="fas fa-edit"></i>
+                                                                                </button>
+                                                                                <button type="button" class="btn btn-sm btn-outline-danger delete-btn" 
+                                                                                        data-log-id="{{ entry.id }}"
+                                                                                        data-cleaner-name="{{ cleaner_name }}"
+                                                                                        data-log-date="{{ entry.date.strftime('%Y-%m-%d') }}"
+                                                                                        data-log-type="{{ entry.log_type }}"
+                                                                                        style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"
+                                                                                        title="Delete log">
+                                                                                    <i class="fas fa-trash"></i>
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    {% endfor %}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    {% endfor %}
+                                                </div>
+                                            {% endfor %}
+                                        {% else %}
+                                            <p class="text-muted text-center small">No logs recorded</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <p class="text-muted">No logs found. Start by logging your first shift or time entry.</p>
+                        <a href="{{ url_for('log_form') }}" class="btn btn-primary">
+                            <i class="fas fa-plus me-2"></i>Log First Entry
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- <div class="row mt-3">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-users me-2"></i>FOH Staff
+                </h5>
+                <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStaffModal" title="Add new staff member">
+                    <i class="fas fa-user-plus"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                {% if cleaners_by_category %}
+                    {% for category_name, cleaners in cleaners_by_category.items() %}
+                        {% if cleaners %}
+                        <div class="mb-3">
+                            <h6 class="text-muted text-uppercase small mb-2">
+                                <i class="fas fa-tag me-1"></i>{{ category_name }}
+                            </h6>
+                            <div class="list-group list-group-flush">
+                                {% for cleaner in cleaners %}
+                                <div class="list-group-item">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex align-items-center">
+                                                <i class="fas fa-user me-2 text-primary"></i>
+                                                <span class="fw-bold">{{ cleaner.name }}</span>
+                                            </div>
+                                            <div class="ms-4 mt-1">
+                                                <small class="text-muted">
+                                                    <i class="fas fa-building me-1"></i>Department: 
+                                                    <span class="badge bg-info">{{ cleaner.category or 'Uncategorized' }}</span>
+                                                </small>
+                                                <br>
+                                                <small class="text-muted">
+                                                    <i class="fas fa-money-bill-wave me-1"></i>Rate:
+                                                    {% if cleaner.rate_amount %}
+                                                        <span class="badge bg-success">
+                                                            R{{ "%.2f"|format(cleaner.rate_amount) }}/{{ 'hr' if cleaner.rate_type == 'hourly' else 'day' if cleaner.rate_type == 'daily' else 'month' }}
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="badge bg-secondary">Legacy rules</span>
+                                                    {% endif %}
+                                                </small>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-secondary rounded-pill">{{ cleaner.time_logs|length }}</span>
+                                            <form method="POST" action="{{ url_for('archive_cleaner') }}" class="d-inline" onsubmit="return confirm('Archive {{ cleaner.name }} from hours? They will no longer appear when logging new shifts; past hours stay as-is.');">
+                                                <input type="hidden" name="cleaner_id" value="{{ cleaner.id }}">
+                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Archive from hours">
+                                                    <i class="fas fa-archive"></i>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-3">
+                        <i class="fas fa-user-plus fa-2x text-muted mb-2"></i>
+                        <p class="text-muted">No FOH staff found.</p>
+                    </div>
+                {% endif %}
+                {% if has_archived %}
+                <hr class="my-3">
+                <h6 class="text-muted text-uppercase small mb-2">
+                    <i class="fas fa-archive me-1"></i>Archived (no new hours)
+                </h6>
+                {% for category_name, cleaners in archived_by_category.items() %}
+                    {% if cleaners %}
+                    <div class="mb-2">
+                        <small class="text-muted">{{ category_name }}</small>
+                        <div class="list-group list-group-flush">
+                            {% for cleaner in cleaners %}
+                            <div class="list-group-item py-2">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-muted">{{ cleaner.name }}</span>
+                                    <form method="POST" action="{{ url_for('restore_cleaner') }}" class="d-inline">
+                                        <input type="hidden" name="cleaner_id" value="{{ cleaner.id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-success" title="Restore so they can receive shifts again">
+                                            <i class="fas fa-undo me-1"></i>Restore
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6 class="card-title">Quick Actions</h6>
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('log_form') }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-plus me-2"></i>Log Shift / Time
+                    </a>
+                    <a href="{{ url_for('weekly_totals') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-calendar-week me-2"></i>View Weekly Totals
+                    </a>
+                    <a href="{{ url_for('monthly_totals') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-calendar-alt me-2"></i>View Monthly Totals
+                    </a>
+                    <a href="{{ url_for('invoices') }}" class="btn btn-outline-primary btn-sm">
+                        <i class="fas fa-file-invoice-dollar me-2"></i>Generate Invoice
+                    </a>
+                    {% set has_cleaners = false %}
+                    {% for category_name, cleaners in cleaners_by_category.items() %}
+                        {% if cleaners %}
+                            {% set has_cleaners = true %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if not has_cleaners %}
+                    <a href="{{ url_for('init_db') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-database me-2"></i>Initialize Database
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div> -->
+
+<!-- Add Staff Modal -->
+<div class="modal fade" id="addStaffModal" tabindex="-1" aria-labelledby="addStaffModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addStaffModalLabel">Add New FOH Staff</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('add_staff') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="staff_name" class="form-label">Staff Name</label>
+                        <input type="text" class="form-control" id="staff_name" name="name" required 
+                               placeholder="Enter staff member's name">
+                        <div class="form-text">Enter the full name of the staff member.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_category" class="form-label">Category</label>
+                        <select class="form-select" id="staff_category" name="category" required>
+                            <option value="">Select a category...</option>
+                            {% for category in staff_categories %}
+                            <option value="{{ category }}">{{ category }}</option>
+                            {% endfor %}
+                            <option value="__new__">+ Create new category...</option>
+                        </select>
+                        <div class="form-text">Choose an existing category or create a new one.</div>
+                    </div>
+                    <div class="mb-3" id="new_category_group" style="display: none;">
+                        <label for="staff_new_category" class="form-label">New Category Name</label>
+                        <input type="text" class="form-control" id="staff_new_category" name="new_category"
+                               maxlength="50" placeholder="Enter a new category name">
+                        <div class="form-text">This category will be available for future staff members too.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_rate_type" class="form-label">Rate Type</label>
+                        <select class="form-select" id="staff_rate_type" name="rate_type" required>
+                            <option value="monthly" selected>Monthly</option>
+                            <option value="daily">Daily</option>
+                            <option value="hourly">Hourly</option>
+                        </select>
+                        <div class="form-text">Choose how this staff member should be paid.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_rate_amount" class="form-label">Rate Amount</label>
+                        <input type="number" class="form-control" id="staff_rate_amount" name="rate_amount" required min="0.01" step="0.01"
+                               placeholder="Enter the pay rate">
+                        <div class="form-text">Enter the amount for the selected rate type.</div>
+                    </div>
+                    <div class="mb-3" id="flat_monthly_group">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="staff_flat_monthly" name="flat_monthly">
+                            <label class="form-check-label" for="staff_flat_monthly">Flat monthly rate</label>
+                        </div>
+                        <div class="form-text">One logged shift covers the full month for pay. You can also log time entries to track hours worked.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Add Staff</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Shift Modal -->
+<div class="modal fade" id="editShiftModal" tabindex="-1" aria-labelledby="editShiftModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editShiftModalLabel">Edit or Remove Log</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('update_log') }}" id="editShiftForm">
+                <div class="modal-body">
+                    <input type="hidden" id="edit_log_id" name="log_id" value="">
+                    <input type="hidden" id="edit_cleaner_name" value="">
+                    <input type="hidden" id="edit_log_date" value="">
+                    <div class="mb-3">
+                        <label for="edit_cleaner_id" class="form-label">FOH Staff</label>
+                        <select class="form-select" id="edit_cleaner_id" name="cleaner_id" required>
+                            {% for category_name, cleaners in cleaners_by_category_all.items() %}
+                                {% if cleaners %}
+                                    <optgroup label="{{ category_name }}">
+                                        {% for cleaner in cleaners %}
+                                        <option value="{{ cleaner.id }}" data-rate-type="{{ cleaner.rate_type or 'monthly' }}" data-flat-monthly="{{ 'true' if cleaner.flat_monthly else 'false' }}">{{ cleaner.name }}</option>
+                                        {% endfor %}
+                                    </optgroup>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_date" class="form-label">Date</label>
+                        <input type="date" class="form-control" id="edit_date" name="date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_log_type" class="form-label">Log Type</label>
+                        <select class="form-select" id="edit_log_type" name="log_type">
+                            <option value="shift">Shift</option>
+                            <option value="time">Time</option>
+                        </select>
+                        <div class="form-text" id="edit_log_type_help">The selected staff member controls whether this log is shift-based or time-based.</div>
+                    </div>
+                    <div class="mb-3" id="edit_time_fields" style="display: none;">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="edit_start_time" class="form-label">Start Time</label>
+                                <input type="time" class="form-control" id="edit_start_time" name="start_time">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="edit_end_time" class="form-label">End Time</label>
+                                <input type="time" class="form-control" id="edit_end_time" name="end_time">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="edit_hours_worked" class="form-label">Hours</label>
+                                <input type="text" class="form-control" id="edit_hours_worked" readonly>
+                            </div>
+                        </div>
+                        <div class="form-text">Overnight entries are supported if the end time is earlier than the start time.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_notes" class="form-label">Notes (Optional)</label>
+                        <textarea class="form-control" id="edit_notes" name="notes" rows="3"></textarea>
+                    </div>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Need to remove this log?</strong> Click the "Delete Log" button below to remove it completely.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-danger me-auto" id="deleteFromModalBtn">
+                        <i class="fas fa-trash me-2"></i>Delete Log
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Log</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Edit button handlers (individual shifts)
+    const editButtons = document.querySelectorAll('.edit-btn');
+    const editModal = new bootstrap.Modal(document.getElementById('editShiftModal'));
+    const deleteFromModalBtn = document.getElementById('deleteFromModalBtn');
+    const editLogType = document.getElementById('edit_log_type');
+    const editCleanerId = document.getElementById('edit_cleaner_id');
+    const editTimeFields = document.getElementById('edit_time_fields');
+    const editStartTime = document.getElementById('edit_start_time');
+    const editEndTime = document.getElementById('edit_end_time');
+    const editHoursWorked = document.getElementById('edit_hours_worked');
+    const editLogTypeHelp = document.getElementById('edit_log_type_help');
+
+    function calculateEditHours() {
+        const startValue = editStartTime.value;
+        const endValue = editEndTime.value;
+
+        if (!startValue || !endValue) {
+            editHoursWorked.value = '';
+            return;
+        }
+
+        const [startHour, startMinute] = startValue.split(':').map(Number);
+        const [endHour, endMinute] = endValue.split(':').map(Number);
+
+        const startDate = new Date(2000, 0, 1, startHour, startMinute);
+        const endDate = new Date(2000, 0, 1, endHour, endMinute);
+        if (endDate <= startDate) {
+            endDate.setDate(endDate.getDate() + 1);
+        }
+
+        const hours = ((endDate - startDate) / (1000 * 60 * 60)).toFixed(2);
+        editHoursWorked.value = `${hours} hours`;
+    }
+
+    function toggleEditTimeFields() {
+        const isTimeLog = editLogType.value === 'time';
+        editTimeFields.style.display = isTimeLog ? 'block' : 'none';
+        editStartTime.required = isTimeLog;
+        editEndTime.required = isTimeLog;
+        if (!isTimeLog) {
+            editStartTime.value = '';
+            editEndTime.value = '';
+            editHoursWorked.value = '';
+        } else {
+            calculateEditHours();
+        }
+    }
+
+    function syncEditLogTypeToCleaner() {
+        const selectedOption = editCleanerId.options[editCleanerId.selectedIndex];
+        const rateType = selectedOption ? (selectedOption.dataset.rateType || 'monthly') : 'monthly';
+        const isFlatMonthly = selectedOption && selectedOption.dataset.flatMonthly === 'true';
+        const isHourly = rateType === 'hourly';
+
+        if (isHourly) {
+            editLogType.value = 'time';
+        } else if (isFlatMonthly) {
+            if (!['shift', 'time'].includes(editLogType.value)) {
+                editLogType.value = 'time';
+            }
+        } else {
+            editLogType.value = 'shift';
+        }
+
+        editLogType.querySelector('option[value="shift"]').disabled = isHourly;
+        editLogType.querySelector('option[value="time"]').disabled = !isHourly && !isFlatMonthly;
+        if (isFlatMonthly) {
+            editLogTypeHelp.textContent = 'Flat monthly staff can log time to track hours, or a shift to mark the month.';
+        } else if (isHourly) {
+            editLogTypeHelp.textContent = 'Hourly staff can only be logged as time entries.';
+        } else {
+            editLogTypeHelp.textContent = 'Daily/monthly staff can only be logged as shift entries.';
+        }
+        toggleEditTimeFields();
+    }
+    
+    editButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const logId = this.getAttribute('data-log-id');
+            const cleanerId = this.getAttribute('data-cleaner-id');
+            const date = this.getAttribute('data-date');
+            const logType = this.getAttribute('data-log-type');
+            const startTime = this.getAttribute('data-start-time');
+            const endTime = this.getAttribute('data-end-time');
+            const notes = this.getAttribute('data-notes');
+            const cleanerName = this.getAttribute('data-cleaner-name');
+            
+            document.getElementById('edit_log_id').value = logId;
+            document.getElementById('edit_cleaner_id').value = cleanerId;
+            document.getElementById('edit_date').value = date;
+            document.getElementById('edit_log_type').value = logType || 'shift';
+            document.getElementById('edit_start_time').value = startTime || '';
+            document.getElementById('edit_end_time').value = endTime || '';
+            document.getElementById('edit_notes').value = notes;
+            document.getElementById('edit_cleaner_name').value = cleanerName;
+            document.getElementById('edit_log_date').value = date;
+            syncEditLogTypeToCleaner();
+            
+            editModal.show();
+        });
+    });
+    
+    // Edit month button handlers (shows first shift for that month)
+    const editMonthButtons = document.querySelectorAll('.edit-month-btn');
+    
+    editMonthButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const logId = this.getAttribute('data-log-id');
+            const cleanerId = this.getAttribute('data-cleaner-id');
+            const date = this.getAttribute('data-date');
+            const logType = this.getAttribute('data-log-type');
+            const startTime = this.getAttribute('data-start-time');
+            const endTime = this.getAttribute('data-end-time');
+            const notes = this.getAttribute('data-notes');
+            const cleanerName = this.getAttribute('data-cleaner-name');
+            
+            document.getElementById('edit_log_id').value = logId;
+            document.getElementById('edit_cleaner_id').value = cleanerId;
+            document.getElementById('edit_date').value = date;
+            document.getElementById('edit_log_type').value = logType || 'shift';
+            document.getElementById('edit_start_time').value = startTime || '';
+            document.getElementById('edit_end_time').value = endTime || '';
+            document.getElementById('edit_notes').value = notes;
+            document.getElementById('edit_cleaner_name').value = cleanerName;
+            document.getElementById('edit_log_date').value = date;
+            syncEditLogTypeToCleaner();
+            
+            editModal.show();
+        });
+    });
+    
+    // Delete from modal button
+    deleteFromModalBtn.addEventListener('click', function() {
+        const logId = document.getElementById('edit_log_id').value;
+        const cleanerName = document.getElementById('edit_cleaner_name').value;
+        const logDate = document.getElementById('edit_log_date').value;
+        
+        if (confirm(`Are you sure you want to DELETE this log?\n\nFOH Staff: ${cleanerName}\nDate: ${logDate}\n\nThis action cannot be undone.`)) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '{{ url_for("delete_log") }}';
+            
+            const logIdInput = document.createElement('input');
+            logIdInput.type = 'hidden';
+            logIdInput.name = 'log_id';
+            logIdInput.value = logId;
+            
+            form.appendChild(logIdInput);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    });
+    
+    // Delete button handlers (from the list)
+    const deleteButtons = document.querySelectorAll('.delete-btn');
+    
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const logId = this.getAttribute('data-log-id');
+            const cleanerName = this.getAttribute('data-cleaner-name');
+            const logDate = this.getAttribute('data-log-date');
+            
+            if (confirm(`Are you sure you want to delete this log?\n\nFOH Staff: ${cleanerName}\nDate: ${logDate}`)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '{{ url_for("delete_log") }}';
+                
+                const logIdInput = document.createElement('input');
+                logIdInput.type = 'hidden';
+                logIdInput.name = 'log_id';
+                logIdInput.value = logId;
+                
+                form.appendChild(logIdInput);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        });
+    });
+
+    editCleanerId.addEventListener('change', syncEditLogTypeToCleaner);
+    editLogType.addEventListener('change', toggleEditTimeFields);
+    editStartTime.addEventListener('input', calculateEditHours);
+    editEndTime.addEventListener('input', calculateEditHours);
+
+    const staffRateType = document.getElementById('staff_rate_type');
+    const flatMonthlyGroup = document.getElementById('flat_monthly_group');
+    const staffFlatMonthly = document.getElementById('staff_flat_monthly');
+    const staffCategory = document.getElementById('staff_category');
+    const newCategoryGroup = document.getElementById('new_category_group');
+    const staffNewCategory = document.getElementById('staff_new_category');
+
+    function toggleFlatMonthlyOption() {
+        const isMonthly = staffRateType.value === 'monthly';
+        flatMonthlyGroup.style.display = isMonthly ? 'block' : 'none';
+        if (!isMonthly) {
+            staffFlatMonthly.checked = false;
+        }
+    }
+
+    function toggleNewCategoryField() {
+        const creatingNew = staffCategory.value === '__new__';
+        newCategoryGroup.style.display = creatingNew ? 'block' : 'none';
+        staffNewCategory.required = creatingNew;
+        if (!creatingNew) {
+            staffNewCategory.value = '';
+        }
+    }
+
+    staffRateType.addEventListener('change', toggleFlatMonthlyOption);
+    staffCategory.addEventListener('change', toggleNewCategoryField);
+    toggleFlatMonthlyOption();
+    toggleNewCategoryField();
+});
+</script>
+{% endblock %}

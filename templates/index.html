@@ -1,0 +1,498 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - CrewTrack{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stat-card {
+        border-left: 4px solid #3498db;
+        transition: transform 0.15s ease;
+    }
+    .stat-card:hover {
+        transform: translateY(-2px);
+    }
+    .stat-card.staff { border-left-color: #3498db; }
+    .stat-card.logs { border-left-color: #2ecc71; }
+    .stat-card.hours { border-left-color: #9b59b6; }
+    .stat-card.wages { border-left-color: #e67e22; }
+    .stat-card.today { border-left-color: #1abc9c; }
+    .stat-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.2;
+    }
+    .quick-action-btn {
+        text-align: left;
+        padding: 0.85rem 1rem;
+    }
+    .quick-action-btn i {
+        width: 1.25rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-1"><i class="fas fa-tachometer-alt me-2 text-primary"></i>Admin Dashboard</h4>
+        <p class="text-muted mb-0">{{ today.strftime('%A, %d %B %Y') }} · Summary for {{ dashboard.period_label }}</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStaffModal">
+            <i class="fas fa-user-plus me-2"></i>Add Staff
+        </button>
+        <a href="{{ url_for('log_form') }}" class="btn btn-primary btn-sm">
+            <i class="fas fa-plus me-2"></i>Log Shift / Time
+        </a>
+    </div>
+</div>
+
+<!-- Stats -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-4 col-xl">
+        <div class="card stat-card staff h-100">
+            <div class="card-body">
+                <div class="text-muted small text-uppercase fw-semibold">Active Staff</div>
+                <div class="stat-value text-primary">{{ dashboard.active_staff }}</div>
+                {% if dashboard.archived_staff > 0 %}
+                <small class="text-muted">{{ dashboard.archived_staff }} archived</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl">
+        <div class="card stat-card logs h-100">
+            <div class="card-body">
+                <div class="text-muted small text-uppercase fw-semibold">Logs This Month</div>
+                <div class="stat-value text-success">{{ dashboard.logs_this_month }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl">
+        <div class="card stat-card hours h-100">
+            <div class="card-body">
+                <div class="text-muted small text-uppercase fw-semibold">Hours This Month</div>
+                <div class="stat-value" style="color:#9b59b6">{{ "%.1f"|format(dashboard.hours_this_month) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-6 col-xl">
+        <div class="card stat-card wages h-100">
+            <div class="card-body">
+                <div class="text-muted small text-uppercase fw-semibold">Wage Bill ({{ dashboard.period_label }})</div>
+                <div class="stat-value" style="color:#e67e22">R{{ "%.2f"|format(dashboard.wage_bill_this_month) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-6 col-xl">
+        <div class="card stat-card today h-100">
+            <div class="card-body">
+                <div class="text-muted small text-uppercase fw-semibold">Working Today</div>
+                <div class="stat-value" style="color:#1abc9c">{{ dashboard.staff_working_today }}</div>
+                <small class="text-muted">staff with logs</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Quick Actions -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="card-title mb-0"><i class="fas fa-bolt me-2"></i>Quick Actions</h6>
+            </div>
+            <div class="card-body d-grid gap-2">
+                <a href="{{ url_for('log_form') }}" class="btn btn-primary quick-action-btn">
+                    <i class="fas fa-plus me-2"></i>Log Shift / Time
+                </a>
+                <a href="{{ url_for('manage_logs') }}" class="btn btn-outline-primary quick-action-btn">
+                    <i class="fas fa-list-alt me-2"></i>Manage Logs
+                </a>
+                <a href="{{ url_for('weekly_totals') }}" class="btn btn-outline-primary quick-action-btn">
+                    <i class="fas fa-calendar-week me-2"></i>Weekly Totals
+                </a>
+                <a href="{{ url_for('monthly_totals') }}" class="btn btn-outline-primary quick-action-btn">
+                    <i class="fas fa-calendar-alt me-2"></i>Monthly Totals
+                </a>
+                <a href="{{ url_for('by_date_view') }}" class="btn btn-outline-primary quick-action-btn">
+                    <i class="fas fa-calendar-check me-2"></i>Work by Date
+                </a>
+                <a href="{{ url_for('invoices') }}" class="btn btn-outline-primary quick-action-btn">
+                    <i class="fas fa-file-invoice-dollar me-2"></i>Invoices
+                </a>
+                <form method="POST" action="{{ url_for('clear_db') }}"
+                      onsubmit="return confirm('Clear the entire database?\n\nThis will delete ALL staff and ALL logged entries. This cannot be undone.');">
+                    <button type="submit" class="btn btn-outline-danger quick-action-btn w-100">
+                        <i class="fas fa-trash-alt me-2"></i>Clear DB (Testing)
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category comparison -->
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h6 class="card-title mb-0"><i class="fas fa-calculator me-2"></i>Wage Bill by Category</h6>
+                <a href="{{ url_for('monthly_totals') }}" class="btn btn-sm btn-outline-primary">Full Report</a>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('index') }}" class="row g-3 align-items-end mb-4" id="wage-compare-form">
+                    {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                    <div class="col-md-5">
+                        <label for="compare_a" class="form-label">Month A</label>
+                        <select class="form-select" id="compare_a" name="compare_a" onchange="this.form.submit()">
+                            {% for year, month in available_log_months %}
+                            {% set month_key = '%d-%02d'|format(year, month) %}
+                            <option value="{{ month_key }}" {% if compare_a_key == month_key %}selected{% endif %}>
+                                {{ month_names[month] }} {{ year }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label for="compare_b" class="form-label">Month B</label>
+                        <select class="form-select" id="compare_b" name="compare_b" onchange="this.form.submit()">
+                            {% for year, month in available_log_months %}
+                            {% set month_key = '%d-%02d'|format(year, month) %}
+                            <option value="{{ month_key }}" {% if compare_b_key == month_key %}selected{% endif %}>
+                                {{ month_names[month] }} {{ year }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100">Compare</button>
+                    </div>
+                </form>
+
+                {% if wage_comparison.has_data %}
+                <div class="table-responsive mb-4">
+                    <table class="table table-sm table-bordered mb-0 align-middle text-center">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Category</th>
+                                <th>{{ wage_comparison.label_a }}</th>
+                                <th>{{ wage_comparison.label_b }}</th>
+                                <th>Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in wage_comparison.rows %}
+                            <tr{% if row.is_grand_total %} class="table-primary fw-bold"{% endif %}>
+                                <td>{{ row.label }}</td>
+                                <td class="text-success">
+                                    R{{ "%.2f"|format(row.amount_a) }}
+                                    {% if row.amount_a > 0 and not row.is_grand_total %}
+                                    <span class="text-muted small">({{ "%.1f"|format(row.pct_a) }}%)</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-success">
+                                    R{{ "%.2f"|format(row.amount_b) }}
+                                    {% if row.amount_b > 0 and not row.is_grand_total %}
+                                    <span class="text-muted small">({{ "%.1f"|format(row.pct_b) }}%)</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if row.change > 0 %}
+                                    <span class="text-success">+R{{ "%.2f"|format(row.change) }}</span>
+                                    {% elif row.change < 0 %}
+                                    <span class="text-danger">-R{{ "%.2f"|format(row.change|abs) }}</span>
+                                    {% else %}
+                                    <span class="text-muted">R0.00</span>
+                                    {% endif %}
+                                    {% if row.change_pct is not none and not row.is_grand_total %}
+                                    <span class="text-muted small d-block">
+                                        {% if row.change_pct > 0 %}+{% endif %}{{ "%.1f"|format(row.change_pct) }}%
+                                    </span>
+                                    {% elif row.is_grand_total and row.change_pct is not none %}
+                                    <span class="text-muted small d-block">
+                                        {% if row.change_pct > 0 %}+{% endif %}{{ "%.1f"|format(row.change_pct) }}%
+                                    </span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <canvas id="wageCompareChart" style="max-height: 280px;"></canvas>
+                {% else %}
+                <p class="text-muted text-center py-4 mb-0">No wage data for the selected months yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-1">
+    <!-- Recent activity -->
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="card-title mb-0"><i class="fas fa-history me-2"></i>Recent Activity</h6>
+                <a href="{{ url_for('manage_logs') }}" class="btn btn-sm btn-outline-secondary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if dashboard.recent_logs %}
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Staff</th>
+                                <th>Type</th>
+                                <th>Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in dashboard.recent_logs %}
+                            <tr>
+                                <td>{{ log.date.strftime('%d %b %Y') }}</td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ log.cleaner.name }}</span>
+                                    <small class="text-muted d-block">{{ log.cleaner.category or 'Uncategorized' }}</small>
+                                </td>
+                                <td>
+                                    {% if log.log_type == 'time' %}
+                                    <span class="badge bg-info text-dark">Time</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Shift</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if log.log_type == 'time' and log.hours_worked %}
+                                    {{ "%.2f"|format(log.hours_worked) }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted text-center py-4 mb-0">No logs recorded yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Staff roster -->
+    <!-- <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="card-title mb-0"><i class="fas fa-users me-2"></i>Staff Roster</h6>
+                <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addStaffModal">
+                    <i class="fas fa-user-plus"></i>
+                </button>
+            </div>
+            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                {% if cleaners_by_category %}
+                    {% for category_name, cleaners in cleaners_by_category.items() %}
+                        {% if cleaners %}
+                        <div class="mb-3">
+                            <div class="text-muted text-uppercase small fw-semibold mb-2">
+                                <i class="fas fa-tag me-1"></i>{{ category_name }}
+                            </div>
+                            {% for cleaner in cleaners %}
+                            <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+                                <div>
+                                    <span class="fw-semibold">{{ cleaner.name }}</span>
+                                    {% if cleaner.rate_amount %}
+                                    <small class="text-muted d-block">
+                                        R{{ "%.2f"|format(cleaner.rate_amount) }}/{{ 'hr' if cleaner.rate_type == 'hourly' else 'day' if cleaner.rate_type == 'daily' else 'mo' }}
+                                    </small>
+                                    {% endif %}
+                                </div>
+                                <form method="POST" action="{{ url_for('archive_cleaner') }}" class="d-inline"
+                                      onsubmit="return confirm('Archive {{ cleaner.name }}? They will not appear when logging new shifts.');">
+                                    <input type="hidden" name="cleaner_id" value="{{ cleaner.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-warning" title="Archive">
+                                        <i class="fas fa-archive"></i>
+                                    </button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted text-center py-3 mb-0">No staff yet. Add your first team member.</p>
+                {% endif %}
+
+                {% if has_archived %}
+                <hr>
+                <div class="text-muted text-uppercase small fw-semibold mb-2">
+                    <i class="fas fa-archive me-1"></i>Archived
+                </div>
+                {% for category_name, cleaners in archived_by_category.items() %}
+                    {% for cleaner in cleaners %}
+                    <div class="d-flex justify-content-between align-items-center py-1">
+                        <span class="text-muted">{{ cleaner.name }}</span>
+                        <form method="POST" action="{{ url_for('restore_cleaner') }}" class="d-inline">
+                            <input type="hidden" name="cleaner_id" value="{{ cleaner.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-success" title="Restore">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div> -->
+</div>
+
+<!-- Add Staff Modal -->
+<div class="modal fade" id="addStaffModal" tabindex="-1" aria-labelledby="addStaffModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addStaffModalLabel">Add New FOH Staff</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" action="{{ url_for('add_staff') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="staff_name" class="form-label">Staff Name</label>
+                        <input type="text" class="form-control" id="staff_name" name="name" required placeholder="Enter staff member's name">
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_category" class="form-label">Category</label>
+                        <select class="form-select" id="staff_category" name="category" required>
+                            <option value="">Select a category...</option>
+                            {% for category in staff_categories %}
+                            <option value="{{ category }}">{{ category }}</option>
+                            {% endfor %}
+                            <option value="__new__">+ Create new category...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="new_category_group" style="display: none;">
+                        <label for="staff_new_category" class="form-label">New Category Name</label>
+                        <input type="text" class="form-control" id="staff_new_category" name="new_category" maxlength="50">
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_rate_type" class="form-label">Rate Type</label>
+                        <select class="form-select" id="staff_rate_type" name="rate_type" required>
+                            <option value="monthly" selected>Monthly</option>
+                            <option value="daily">Daily</option>
+                            <option value="hourly">Hourly</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_rate_amount" class="form-label">Rate Amount</label>
+                        <input type="number" class="form-control" id="staff_rate_amount" name="rate_amount" required min="0.01" step="0.01">
+                    </div>
+                    <div class="mb-3" id="flat_monthly_group">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="staff_flat_monthly" name="flat_monthly">
+                            <label class="form-check-label" for="staff_flat_monthly">Flat monthly rate</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Add Staff</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if wage_comparison.has_data %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const compareRows = [
+        {% for row in wage_comparison.rows if not row.get('is_grand_total') %}
+        {
+            label: {{ row.label|tojson }},
+            amountA: {{ row.amount_a }},
+            amountB: {{ row.amount_b }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ].filter(function(row) { return row.amountA > 0 || row.amountB > 0; });
+
+    if (compareRows.length) {
+        new Chart(document.getElementById('wageCompareChart'), {
+            type: 'bar',
+            data: {
+                labels: compareRows.map(function(row) { return row.label; }),
+                datasets: [
+                    {
+                        label: {{ wage_comparison.label_a|tojson }},
+                        data: compareRows.map(function(row) { return row.amountA; }),
+                        backgroundColor: '#3498db',
+                        borderRadius: 4
+                    },
+                    {
+                        label: {{ wage_comparison.label_b|tojson }},
+                        data: compareRows.map(function(row) { return row.amountB; }),
+                        backgroundColor: '#2ecc71',
+                        borderRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return ctx.dataset.label + ': R' + ctx.parsed.y.toFixed(2);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) { return 'R' + value; }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    initStaffModalControls();
+});
+</script>
+{% else %}
+<script>
+document.addEventListener('DOMContentLoaded', initStaffModalControls);
+</script>
+{% endif %}
+<script>
+function initStaffModalControls() {
+    const staffRateType = document.getElementById('staff_rate_type');
+    const flatMonthlyGroup = document.getElementById('flat_monthly_group');
+    const staffFlatMonthly = document.getElementById('staff_flat_monthly');
+    const staffCategory = document.getElementById('staff_category');
+    const newCategoryGroup = document.getElementById('new_category_group');
+    const staffNewCategory = document.getElementById('staff_new_category');
+    if (!staffRateType) return;
+
+    staffRateType.addEventListener('change', function() {
+        flatMonthlyGroup.style.display = staffRateType.value === 'monthly' ? 'block' : 'none';
+        if (staffRateType.value !== 'monthly') staffFlatMonthly.checked = false;
+    });
+    staffCategory.addEventListener('change', function() {
+        const creatingNew = staffCategory.value === '__new__';
+        newCategoryGroup.style.display = creatingNew ? 'block' : 'none';
+        staffNewCategory.required = creatingNew;
+        if (!creatingNew) staffNewCategory.value = '';
+    });
+}
+</script>
+{% endblock %}

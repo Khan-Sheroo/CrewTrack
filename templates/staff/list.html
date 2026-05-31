@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Staff Management - CashUp{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Staff Management</h1>
+    <a href="{{ url_for('staff.add_staff') }}" class="btn btn-primary">Add Staff Member</a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if staff_list %}
+                    {% for staff in staff_list %}
+                    <tr>
+                        <td>{{ staff.id }}</td>
+                        <td>{{ staff.name }}</td>
+                        <td>
+                            {% if staff.active %}
+                                <span class="badge bg-success">Active</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ staff.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            <form method="POST" action="{{ url_for('staff.toggle_staff_status', staff_id=staff.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-sm btn-{{ 'secondary' if staff.active else 'success' }}">
+                                    {{ 'Deactivate' if staff.active else 'Activate' }}
+                                </button>
+                            </form>
+                            <form method="POST" action="{{ url_for('staff.delete_staff', staff_id=staff.id) }}" style="display: inline;" class="ms-1" onsubmit="return confirm('Permanently remove {{ staff.name }}? Their cash-up and tip history will be deleted.');">
+                                <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">No staff members found. <a href="{{ url_for('staff.add_staff') }}">Add one now</a>.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+

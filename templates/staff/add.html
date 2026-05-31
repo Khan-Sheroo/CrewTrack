@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Add Staff - CashUp{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3>Add Staff Member</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Full Name *</label>
+                        <input type="text" class="form-control" id="name" name="name" required autofocus>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="active" name="active" checked>
+                        <label class="form-check-label" for="active">Active</label>
+                    </div>
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{{ url_for('staff.list_staff') }}" class="btn btn-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-primary">Add Staff Member</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+

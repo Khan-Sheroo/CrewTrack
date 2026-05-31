@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+file_processor/venv/
+
+# Flask
+instance/
+.webassets-cache
+
+# Database (local dev data — use seed.py to populate)
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Unrelated projects in this workspace folder (not part of CrewTrack)
+cashup/
+file_processor/
+file-processing-tool/

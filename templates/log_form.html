@@ -1,0 +1,787 @@
+{% extends "base.html" %}
+
+{% block title %}Log Shift or Time - Cleaning Time Logger{% endblock %}
+
+{% block extra_css %}
+<style>
+    .calendar-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 0.35rem;
+    }
+    .calendar-weekday {
+        text-align: center;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #6c757d;
+        padding: 0.25rem 0;
+    }
+    .calendar-day {
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        background: #fff;
+        min-height: 2.5rem;
+        font-size: 0.875rem;
+        padding: 0;
+    }
+    .calendar-day:not(.calendar-day--empty):not(:disabled):hover {
+        background: #e7f1ff;
+    }
+    .calendar-day--empty {
+        border: none;
+        background: transparent;
+    }
+    .calendar-day--today {
+        border-color: #3498db;
+        font-weight: 700;
+    }
+    .calendar-day--selected {
+        background: #3498db;
+        border-color: #3498db;
+        color: #fff;
+    }
+    .calendar-day--logged {
+        background: #f8d7da;
+        border-color: #dc3545;
+        color: #842029;
+        font-weight: 600;
+    }
+    .calendar-day--selected.calendar-day--logged {
+        background: #3498db;
+        border-color: #3498db;
+        color: #fff;
+        box-shadow: inset 0 0 0 2px #dc3545;
+    }
+    .calendar-day--logged:not(.calendar-day--selected):hover {
+        background: #f1b0b7;
+    }
+    .calendar-legend-dot {
+        width: 0.75rem;
+        height: 0.75rem;
+        border-radius: 0.2rem;
+        display: inline-block;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-plus me-2"></i>Log Shift or Time
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('submit_log') }}">
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-user-friends me-2"></i>FOH Staff
+                        </label>
+                        <div class="border rounded p-2" style="max-height: 260px; overflow-y: auto;">
+                            {% for category_name, cleaners in cleaners_by_category.items() %}
+                                {% if cleaners %}
+                                <div class="mb-2">
+                                    <div class="fw-semibold small text-muted mb-1">{{ category_name }}</div>
+                                    <div class="row g-1">
+                                        {% for cleaner in cleaners %}
+                                        <div class="col-6">
+                                            <div class="form-check">
+                                                <input
+                                                    class="form-check-input"
+                                                    type="checkbox"
+                                                    data-rate-type="{{ cleaner.rate_type or 'monthly' }}"
+                                                    data-flat-monthly="{{ 'true' if cleaner.flat_monthly else 'false' }}"
+                                                    id="cleaner_{{ cleaner.id }}"
+                                                    name="cleaner_ids[]"
+                                                    value="{{ cleaner.id }}"
+                                                >
+                                                <label class="form-check-label small" for="cleaner_{{ cleaner.id }}">
+                                                    {{ cleaner.name }}
+                                                    <span class="text-muted">({{ 'hourly' if cleaner.rate_type == 'hourly' else 'daily' if cleaner.rate_type == 'daily' else 'monthly flat' if cleaner.flat_monthly else 'monthly' }})</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="form-text">
+                            Tick all FOH staff who worked these dates. Hourly staff use time entries. Daily and monthly staff use shift entries. Flat monthly staff can use time entries to track hours.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-clock me-2"></i>Log Type
+                        </label>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="log_type" id="log_type_shift" value="shift" checked>
+                            <label class="form-check-label" for="log_type_shift">
+                                Shift
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="log_type" id="log_type_time" value="time">
+                            <label class="form-check-label" for="log_type_time">
+                                Time
+                            </label>
+                        </div>
+                        <div class="form-text">Use shift logging for the current payroll calculation, or time logging to store actual hours worked.</div>
+                        <div class="form-text mt-1" id="log_type_help_text">Select staff to lock this to the correct logging method.</div>
+                        <div class="alert alert-warning mt-2 mb-0" id="mixed_rate_warning" style="display: none;">
+                            Hourly staff and daily/monthly staff must be logged separately.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">
+                            <i class="fas fa-calendar me-2"></i>Date Selection
+                        </label>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="date_mode" id="single_date" value="single" checked>
+                            <label class="form-check-label" for="single_date">
+                                Single Date
+                            </label>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="radio" name="date_mode" id="multiple_dates" value="multiple">
+                            <label class="form-check-label" for="multiple_dates">
+                                Multiple Dates (calendar)
+                            </label>
+                        </div>
+                        
+                        <!-- Single Date Input -->
+                        <div id="single_date_input">
+                            <input type="date" class="form-control" id="date" name="date" 
+                                   value="{{ today }}">
+                            <div class="form-text">Select the date when the work was performed.</div>
+                        </div>
+                        
+                        <!-- Multiple Dates Input -->
+                        <div id="multiple_dates_input" style="display: none;">
+                            <input type="hidden" name="log_batches" id="log_batches" value="">
+                            <div class="d-grid gap-2 mb-3">
+                                <button type="button" class="btn btn-outline-primary" id="open_calendar_btn" data-bs-toggle="modal" data-bs-target="#calendarModal">
+                                    <i class="fas fa-calendar-alt me-2"></i>Choose Dates on Calendar
+                                </button>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Current Selection</label>
+                                <div id="dates_container">
+                                    <p class="text-muted mb-0">No dates selected yet. Open the calendar to pick multiple days.</p>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="add_timeslot_btn">
+                                    <i class="fas fa-layer-group me-1"></i>Add Timeslot (same times, new dates)
+                                </button>
+                                <div class="form-text">Queue this timeslot, then change the times and pick more dates. Dates that already have hours show in red on the calendar.</div>
+                            </div>
+                            <div id="timeslot_queue_section" style="display: none;">
+                                <label class="form-label">Queued Timeslots</label>
+                                <div id="timeslot_queue" class="d-flex flex-column gap-2"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3" id="time_fields" style="display: none;">
+                        <label class="form-label">
+                            <i class="fas fa-business-time me-2"></i>Time Details
+                        </label>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="start_time" class="form-label">Start Time</label>
+                                <input type="time" class="form-control" id="start_time" name="start_time">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="end_time" class="form-label">End Time</label>
+                                <input type="time" class="form-control" id="end_time" name="end_time">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="calculated_hours" class="form-label">Hours</label>
+                                <input type="text" class="form-control" id="calculated_hours" value="" readonly placeholder="Calculated automatically">
+                            </div>
+                        </div>
+                        <div class="form-text">If the end time is earlier than the start time, it will be treated as an overnight entry.</div>
+                        <div class="form-text">Hourly staff are paid at 1.5x on Sundays and 2x on South African public holidays.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="notes" class="form-label">
+                            <i class="fas fa-sticky-note me-2"></i>Notes (Optional)
+                        </label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3" 
+                                  placeholder="Enter any additional details about the shift, time, location, or special tasks..."></textarea>
+                        <div class="form-text">Optional notes about the work performed.</div>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Save Log
+                        </button>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Home
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% set has_cleaners = false %}
+        {% for category_name, cleaners in cleaners_by_category.items() %}
+            {% if cleaners %}
+                {% set has_cleaners = true %}
+            {% endif %}
+        {% endfor %}
+        {% if not has_cleaners %}
+        <div class="card mt-3 border-warning">
+            <div class="card-body text-center">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-2"></i>
+                <h6 class="card-title">No FOH Staff Available</h6>
+                <p class="card-text text-muted">You need to add FOH staff before you can create logs.</p>
+                <a href="{{ url_for('init_db') }}" class="btn btn-warning">
+                    <i class="fas fa-database me-2"></i>Initialize Database
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="calendarModal" tabindex="-1" aria-labelledby="calendarModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="calendarModalLabel">
+                    <i class="fas fa-calendar-alt me-2"></i>Select Dates
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="calendar_prev_month">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <h6 class="mb-0" id="calendar_month_label"></h6>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="calendar_next_month">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="calendar-grid mb-2" id="calendar_weekdays"></div>
+                <div class="calendar-grid" id="calendar_days"></div>
+                <div class="d-flex flex-wrap gap-3 mt-3 small text-muted">
+                    <span><span class="calendar-legend-dot" style="background:#3498db;"></span> Current selection</span>
+                    <span><span class="calendar-legend-dot" style="background:#f8d7da;border:1px solid #dc3545;"></span> Hours already logged</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="calendar_clear_btn">Clear Selection</button>
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const shiftLogRadio = document.getElementById('log_type_shift');
+    const timeLogRadio = document.getElementById('log_type_time');
+    const cleanerCheckboxes = document.querySelectorAll('input[name="cleaner_ids[]"]');
+    const timeFields = document.getElementById('time_fields');
+    const mixedRateWarning = document.getElementById('mixed_rate_warning');
+    const logTypeHelpText = document.getElementById('log_type_help_text');
+    const singleDateRadio = document.getElementById('single_date');
+    const multipleDatesRadio = document.getElementById('multiple_dates');
+    const singleDateInput = document.getElementById('single_date_input');
+    const multipleDatesInput = document.getElementById('multiple_dates_input');
+    const dateInput = document.getElementById('date');
+    const datesContainer = document.getElementById('dates_container');
+    const startTimeInput = document.getElementById('start_time');
+    const endTimeInput = document.getElementById('end_time');
+    const calculatedHoursInput = document.getElementById('calculated_hours');
+    const submitButton = document.querySelector('button[type="submit"]');
+    const logBatchesInput = document.getElementById('log_batches');
+    const addTimeslotBtn = document.getElementById('add_timeslot_btn');
+    const timeslotQueueSection = document.getElementById('timeslot_queue_section');
+    const timeslotQueueContainer = document.getElementById('timeslot_queue');
+    const calendarModal = document.getElementById('calendarModal');
+    const calendarMonthLabel = document.getElementById('calendar_month_label');
+    const calendarWeekdays = document.getElementById('calendar_weekdays');
+    const calendarDays = document.getElementById('calendar_days');
+    const calendarPrevMonth = document.getElementById('calendar_prev_month');
+    const calendarNextMonth = document.getElementById('calendar_next_month');
+    const calendarClearBtn = document.getElementById('calendar_clear_btn');
+
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    let currentDraftDates = [];
+    let timeslotQueue = [];
+    let calendarView = new Date();
+    let dbLoggedDates = new Set();
+    let dbLogDetails = {};
+
+    function pad(value) {
+        return String(value).padStart(2, '0');
+    }
+
+    function formatDateISO(year, monthIndex, day) {
+        return `${year}-${pad(monthIndex + 1)}-${pad(day)}`;
+    }
+
+    function parseISODate(value) {
+        const [year, month, day] = value.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+
+    function formatDisplayDate(value) {
+        return parseISODate(value).toLocaleDateString(undefined, {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    }
+
+    function getQueuedDates() {
+        const queued = new Set();
+        timeslotQueue.forEach(function(batch) {
+            batch.dates.forEach(function(dateValue) {
+                queued.add(dateValue);
+            });
+        });
+        return queued;
+    }
+
+    function isDateLogged(dateISO) {
+        return dbLoggedDates.has(dateISO) || getQueuedDates().has(dateISO);
+    }
+
+    function getLoggedTooltip(dateISO) {
+        const lines = [];
+
+        if (dbLogDetails[dateISO]) {
+            dbLogDetails[dateISO].forEach(function(entry) {
+                if (entry.start && entry.end) {
+                    lines.push(`Saved: ${entry.start} - ${entry.end}`);
+                } else if (entry.hours) {
+                    lines.push(`Saved: ${entry.hours} hrs`);
+                } else {
+                    lines.push('Saved: shift logged');
+                }
+            });
+        }
+
+        timeslotQueue.forEach(function(batch) {
+            if (batch.dates.includes(dateISO)) {
+                if (batch.start_time && batch.end_time) {
+                    lines.push(`Queued: ${batch.start_time} - ${batch.end_time}`);
+                } else {
+                    lines.push('Queued: shift');
+                }
+            }
+        });
+
+        return lines.join('\n');
+    }
+
+    async function refreshLoggedDatesFromServer() {
+        const selectedIds = Array.from(cleanerCheckboxes)
+            .filter(function(checkbox) { return checkbox.checked; })
+            .map(function(checkbox) { return checkbox.value; });
+
+        if (selectedIds.length === 0) {
+            dbLoggedDates = new Set();
+            dbLogDetails = {};
+            renderCalendar();
+            return;
+        }
+
+        const params = new URLSearchParams();
+        selectedIds.forEach(function(id) {
+            params.append('cleaner_ids[]', id);
+        });
+
+        try {
+            const response = await fetch(`/api/staff-logged-dates?${params.toString()}`);
+            if (!response.ok) {
+                return;
+            }
+            const data = await response.json();
+            dbLoggedDates = new Set(data.dates || []);
+            dbLogDetails = data.details || {};
+        } catch (error) {
+            dbLoggedDates = new Set();
+            dbLogDetails = {};
+        }
+
+        renderCalendar();
+    }
+
+    function getScheduledDates() {
+        return getQueuedDates();
+    }
+
+    function toggleDateInputs() {
+        if (singleDateRadio.checked) {
+            singleDateInput.style.display = 'block';
+            multipleDatesInput.style.display = 'none';
+            dateInput.required = true;
+        } else {
+            singleDateInput.style.display = 'none';
+            multipleDatesInput.style.display = 'block';
+            dateInput.required = false;
+        }
+    }
+
+    function calculateHours() {
+        const startValue = startTimeInput.value;
+        const endValue = endTimeInput.value;
+
+        if (!startValue || !endValue) {
+            calculatedHoursInput.value = '';
+            return;
+        }
+
+        const [startHour, startMinute] = startValue.split(':').map(Number);
+        const [endHour, endMinute] = endValue.split(':').map(Number);
+
+        const startDate = new Date(2000, 0, 1, startHour, startMinute);
+        const endDate = new Date(2000, 0, 1, endHour, endMinute);
+        if (endDate <= startDate) {
+            endDate.setDate(endDate.getDate() + 1);
+        }
+
+        calculatedHoursInput.value = `${(((endDate - startDate) / (1000 * 60 * 60)).toFixed(2))} hours`;
+    }
+
+    function toggleLogTypeFields() {
+        const isTimeLog = timeLogRadio.checked;
+        timeFields.style.display = isTimeLog ? 'block' : 'none';
+        startTimeInput.required = isTimeLog && singleDateRadio.checked;
+        endTimeInput.required = isTimeLog && singleDateRadio.checked;
+        if (!isTimeLog) {
+            startTimeInput.value = '';
+            endTimeInput.value = '';
+            calculatedHoursInput.value = '';
+        } else {
+            calculateHours();
+        }
+    }
+
+    function getAllowedLogTypes(checkbox) {
+        const rateType = checkbox.dataset.rateType || 'monthly';
+        if (rateType === 'hourly') {
+            return ['time'];
+        }
+        if (checkbox.dataset.flatMonthly === 'true') {
+            return ['shift', 'time'];
+        }
+        return ['shift'];
+    }
+
+    function updateLogTypeConstraints() {
+        const selectedCheckboxes = Array.from(cleanerCheckboxes).filter(checkbox => checkbox.checked);
+
+        if (selectedCheckboxes.length === 0) {
+            shiftLogRadio.disabled = false;
+            timeLogRadio.disabled = false;
+            if (!timeLogRadio.checked) {
+                shiftLogRadio.checked = true;
+            }
+            mixedRateWarning.style.display = 'none';
+            submitButton.disabled = false;
+            logTypeHelpText.textContent = 'Select staff to lock this to the correct logging method.';
+            toggleLogTypeFields();
+            return;
+        }
+
+        let commonAllowed = null;
+        selectedCheckboxes.forEach(function(checkbox) {
+            const allowed = new Set(getAllowedLogTypes(checkbox));
+            commonAllowed = commonAllowed === null
+                ? allowed
+                : new Set([...commonAllowed].filter(function(type) { return allowed.has(type); }));
+        });
+
+        if (!commonAllowed || commonAllowed.size === 0) {
+            shiftLogRadio.disabled = true;
+            timeLogRadio.disabled = true;
+            mixedRateWarning.style.display = 'block';
+            submitButton.disabled = true;
+            logTypeHelpText.textContent = 'You cannot log hourly staff together with daily or monthly staff.';
+            toggleLogTypeFields();
+            return;
+        }
+
+        shiftLogRadio.disabled = !commonAllowed.has('shift');
+        timeLogRadio.disabled = !commonAllowed.has('time');
+
+        const currentType = timeLogRadio.checked ? 'time' : 'shift';
+        if (!commonAllowed.has(currentType)) {
+            if (commonAllowed.has('time')) {
+                timeLogRadio.checked = true;
+                shiftLogRadio.checked = false;
+            } else {
+                shiftLogRadio.checked = true;
+                timeLogRadio.checked = false;
+            }
+        } else if (commonAllowed.size > 1) {
+            const onlyFlatMonthly = selectedCheckboxes.every(function(checkbox) {
+                return checkbox.dataset.flatMonthly === 'true';
+            });
+            if (onlyFlatMonthly) {
+                timeLogRadio.checked = true;
+                shiftLogRadio.checked = false;
+            }
+        }
+
+        mixedRateWarning.style.display = 'none';
+        submitButton.disabled = false;
+
+        if (commonAllowed.size > 1) {
+            logTypeHelpText.textContent = 'Flat monthly staff can log time entries to track hours, or a shift to mark the month.';
+        } else if (commonAllowed.has('time')) {
+            logTypeHelpText.textContent = 'Selected hourly staff can only be logged as time entries.';
+        } else {
+            logTypeHelpText.textContent = 'Selected daily/monthly staff can only be logged as shift entries.';
+        }
+        toggleLogTypeFields();
+        refreshLoggedDatesFromServer();
+    }
+
+    function renderCurrentDraftDates() {
+        if (currentDraftDates.length === 0) {
+            datesContainer.innerHTML = '<p class="text-muted mb-0">No dates selected yet. Open the calendar to pick multiple days.</p>';
+            return;
+        }
+
+        datesContainer.innerHTML = '';
+        currentDraftDates.slice().sort().forEach(function(dateValue) {
+            const row = document.createElement('div');
+            row.className = 'd-flex justify-content-between align-items-center border rounded p-2 mb-2';
+            row.innerHTML = `
+                <span class="badge bg-primary">${formatDisplayDate(dateValue)}</span>
+                <button type="button" class="btn btn-sm btn-outline-danger" data-remove-date="${dateValue}">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            datesContainer.appendChild(row);
+        });
+
+        datesContainer.querySelectorAll('[data-remove-date]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                currentDraftDates = currentDraftDates.filter(function(dateValue) {
+                    return dateValue !== button.dataset.removeDate;
+                });
+                renderCurrentDraftDates();
+                renderCalendar();
+            });
+        });
+    }
+
+    function renderTimeslotQueue() {
+        if (timeslotQueue.length === 0) {
+            timeslotQueueSection.style.display = 'none';
+            timeslotQueueContainer.innerHTML = '';
+            return;
+        }
+
+        timeslotQueueSection.style.display = 'block';
+        timeslotQueueContainer.innerHTML = '';
+
+        timeslotQueue.forEach(function(batch, index) {
+            const card = document.createElement('div');
+            card.className = 'border rounded p-2 bg-light';
+            const timeLabel = batch.start_time && batch.end_time
+                ? `${batch.start_time} - ${batch.end_time}`
+                : 'Shift entry';
+            const datesLabel = batch.dates.slice().sort().map(formatDisplayDate).join(', ');
+            card.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="fw-semibold">${timeLabel}</div>
+                        <div class="small text-muted">${batch.dates.length} date(s): ${datesLabel}</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-batch="${index}">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `;
+            timeslotQueueContainer.appendChild(card);
+        });
+
+        timeslotQueueContainer.querySelectorAll('[data-remove-batch]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                timeslotQueue.splice(Number(button.dataset.removeBatch), 1);
+                renderTimeslotQueue();
+                renderCalendar();
+            });
+        });
+    }
+
+    function renderCalendarWeekdays() {
+        calendarWeekdays.innerHTML = weekdayNames.map(function(name) {
+            return `<div class="calendar-weekday">${name}</div>`;
+        }).join('');
+    }
+
+    function renderCalendar() {
+        const year = calendarView.getFullYear();
+        const monthIndex = calendarView.getMonth();
+        const todayISO = formatDateISO(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+        calendarMonthLabel.textContent = `${monthNames[monthIndex]} ${year}`;
+
+        const firstDay = new Date(year, monthIndex, 1);
+        const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+        const leadingEmpty = firstDay.getDay();
+
+        calendarDays.innerHTML = '';
+
+        for (let i = 0; i < leadingEmpty; i += 1) {
+            const emptyCell = document.createElement('div');
+            emptyCell.className = 'calendar-day calendar-day--empty';
+            calendarDays.appendChild(emptyCell);
+        }
+
+        for (let day = 1; day <= daysInMonth; day += 1) {
+            const dateISO = formatDateISO(year, monthIndex, day);
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'calendar-day';
+            button.textContent = String(day);
+
+            if (dateISO === todayISO) {
+                button.classList.add('calendar-day--today');
+            }
+            if (isDateLogged(dateISO)) {
+                button.classList.add('calendar-day--logged');
+                const tooltip = getLoggedTooltip(dateISO);
+                if (tooltip) {
+                    button.title = tooltip;
+                }
+            }
+            if (currentDraftDates.includes(dateISO)) {
+                button.classList.add('calendar-day--selected');
+            }
+
+            button.addEventListener('click', function() {
+                if (currentDraftDates.includes(dateISO)) {
+                    currentDraftDates = currentDraftDates.filter(function(value) { return value !== dateISO; });
+                } else {
+                    currentDraftDates.push(dateISO);
+                }
+                renderCurrentDraftDates();
+                renderCalendar();
+            });
+
+            calendarDays.appendChild(button);
+        }
+    }
+
+    function validateCurrentTimeslot() {
+        if (currentDraftDates.length === 0) {
+            alert('Select at least one date on the calendar.');
+            return false;
+        }
+        if (timeLogRadio.checked && (!startTimeInput.value || !endTimeInput.value)) {
+            alert('Please enter both a start time and end time for this timeslot.');
+            return false;
+        }
+        return true;
+    }
+
+    function buildCurrentBatch() {
+        return {
+            log_type: timeLogRadio.checked ? 'time' : 'shift',
+            dates: currentDraftDates.slice().sort(),
+            start_time: timeLogRadio.checked ? startTimeInput.value : null,
+            end_time: timeLogRadio.checked ? endTimeInput.value : null
+        };
+    }
+
+    function addTimeslotToQueue() {
+        if (!validateCurrentTimeslot()) {
+            return;
+        }
+
+        timeslotQueue.push(buildCurrentBatch());
+        currentDraftDates = [];
+        renderTimeslotQueue();
+        renderCurrentDraftDates();
+        renderCalendar();
+    }
+
+    function buildAllBatchesForSubmit() {
+        const batches = timeslotQueue.slice();
+        if (currentDraftDates.length > 0) {
+            if (timeLogRadio.checked && (!startTimeInput.value || !endTimeInput.value)) {
+                return null;
+            }
+            batches.push(buildCurrentBatch());
+        }
+        return batches;
+    }
+
+    calendarPrevMonth.addEventListener('click', function() {
+        calendarView = new Date(calendarView.getFullYear(), calendarView.getMonth() - 1, 1);
+        renderCalendar();
+    });
+
+    calendarNextMonth.addEventListener('click', function() {
+        calendarView = new Date(calendarView.getFullYear(), calendarView.getMonth() + 1, 1);
+        renderCalendar();
+    });
+
+    calendarClearBtn.addEventListener('click', function() {
+        currentDraftDates = [];
+        renderCurrentDraftDates();
+        renderCalendar();
+    });
+
+    calendarModal.addEventListener('shown.bs.modal', function() {
+        renderCalendar();
+    });
+
+    addTimeslotBtn.addEventListener('click', addTimeslotToQueue);
+
+    form.addEventListener('submit', function(event) {
+        if (!multipleDatesRadio.checked) {
+            return;
+        }
+
+        const batches = buildAllBatchesForSubmit();
+        if (!batches || batches.length === 0) {
+            event.preventDefault();
+            alert('Please select at least one date on the calendar.');
+            return;
+        }
+
+        logBatchesInput.value = JSON.stringify(batches);
+    });
+
+    cleanerCheckboxes.forEach(function(checkbox) {
+        checkbox.addEventListener('change', updateLogTypeConstraints);
+    });
+    shiftLogRadio.addEventListener('change', toggleLogTypeFields);
+    timeLogRadio.addEventListener('change', toggleLogTypeFields);
+    singleDateRadio.addEventListener('change', toggleDateInputs);
+    multipleDatesRadio.addEventListener('change', toggleDateInputs);
+    startTimeInput.addEventListener('input', calculateHours);
+    endTimeInput.addEventListener('input', calculateHours);
+
+    renderCalendarWeekdays();
+    updateLogTypeConstraints();
+    toggleDateInputs();
+    renderCurrentDraftDates();
+    renderTimeslotQueue();
+});
+</script>
+{% endblock %}
+

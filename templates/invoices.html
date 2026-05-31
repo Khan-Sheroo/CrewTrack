@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+
+{% block title %}Staff Invoices - Cleaning Time Logger{% endblock %}
+
+{% block content %}
+<style>
+    @media print {
+        nav,
+        .no-print,
+        .btn,
+        form,
+        .alert {
+            display: none !important;
+        }
+        body {
+            background: white;
+        }
+        .card {
+            border: none;
+            box-shadow: none;
+        }
+        main.container {
+            max-width: 100%;
+            width: 100%;
+        }
+    }
+</style>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4 no-print">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-file-invoice-dollar me-2"></i>Staff Invoices
+                </h5>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Home
+                </a>
+            </div>
+            <div class="card-body">
+                <form method="GET" action="{{ url_for('invoices') }}">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label for="cleaner_id" class="form-label">Staff Member</label>
+                            <select class="form-select" id="cleaner_id" name="cleaner_id" required>
+                                <option value="">Select staff member...</option>
+                                {% for cleaner in cleaners %}
+                                <option value="{{ cleaner.id }}" {% if selected_cleaner_id == cleaner.id %}selected{% endif %}>
+                                    {{ cleaner.name }}{% if cleaner.rate_amount %} - R{{ "%.2f"|format(cleaner.rate_amount) }}/{{ 'hr' if cleaner.rate_type == 'hourly' else 'day' if cleaner.rate_type == 'daily' else 'month flat' if cleaner.flat_monthly else 'month' }}{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="date_from" class="form-label">From date</label>
+                            <input type="date" class="form-control" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="date_to" class="form-label">To date</label>
+                            <input type="date" class="form-control" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() }}">
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-eye me-2"></i>Preview
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% if invoice_data %}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-receipt me-2"></i>Invoice Preview
+                    </h5>
+                    <small class="text-muted">{{ invoice_data.invoice_number }}</small>
+                </div>
+                <div class="d-flex gap-2 no-print">
+                    <button type="button" class="btn btn-outline-success btn-sm" onclick="window.print()">
+                        <i class="fas fa-print me-2"></i>Print / Save PDF
+                    </button>
+                    {% if reportlab_available %}
+                    <a href="{{ url_for('invoice_pdf', cleaner_id=invoice_data.cleaner.id, date_from=filter_date_from.isoformat(), date_to=filter_date_to.isoformat()) }}" class="btn btn-outline-danger btn-sm" target="_blank">
+                        <i class="fas fa-file-pdf me-2"></i>Download PDF
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h6 class="text-uppercase text-muted small mb-2">Invoice Details</h6>
+                        <div><strong>Invoice No:</strong> {{ invoice_data.invoice_number }}</div>
+                        <div><strong>Issue Date:</strong> {{ invoice_data.issue_date.strftime('%d %b %Y') }}</div>
+                        <div><strong>Period:</strong> {{ invoice_data.period_start.strftime('%d %b %Y') }} to {{ invoice_data.period_end.strftime('%d %b %Y') }}</div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-uppercase text-muted small mb-2">Staff Member</h6>
+                        <div><strong>Name:</strong> {{ invoice_data.cleaner.name }}</div>
+                        <div><strong>Category:</strong> {{ invoice_data.cleaner.category or 'Uncategorized' }}</div>
+                        <div><strong>Pay Basis:</strong> {{ invoice_data.rate_label }}</div>
+                    </div>
+                </div>
+
+                <!-- <div class="row mb-3">
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 bg-light">
+                            <div class="text-muted small">Entries</div>
+                            <div class="fs-5 fw-bold">{{ invoice_data.entries_count }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 bg-light">
+                            <div class="text-muted small">Hours Logged</div>
+                            <div class="fs-5 fw-bold">{{ "%.2f"|format(invoice_data.hours_total) }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="border rounded p-3 bg-light">
+                            <div class="text-muted small">Invoice Total</div>
+                            <div class="fs-5 fw-bold text-success">R{{ "%.2f"|format(invoice_data.amount_total) }}</div>
+                        </div>
+                    </div>
+                </div> -->
+
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Details</th>
+                                <th>Qty</th>
+                                <th>Rate</th>
+                                <th>Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if invoice_data.line_items %}
+                                {% for item in invoice_data.line_items %}
+                                <tr>
+                                    <td>{{ item.date.strftime('%Y-%m-%d') }}</td>
+                                    <td>{{ item.description }}</td>
+                                    <td>{{ item.quantity_display }}</td>
+                                    <td>{{ item.rate_display }}</td>
+                                    <td class="fw-bold">R{{ "%.2f"|format(item.amount) }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted">No logs found for this date range.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-light">
+                                <th colspan="4" class="text-end">Total</th>
+                                <th class="text-success">R{{ "%.2f"|format(invoice_data.amount_total) }}</th>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-file-invoice-dollar fa-3x text-muted mb-3"></i>
+                <p class="text-muted mb-0">Choose a staff member and date range to generate an invoice preview.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
