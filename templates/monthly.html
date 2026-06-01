@@ -210,36 +210,11 @@
                                         <i class="fas fa-calculator me-2"></i>Category Totals:
                                     </td>
                                 </tr>
+                                {% for row in category_totals.display_rows %}
                                 <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">Bartenders Total</td>
+                                    <td colspan="2" class="fw-bold">{{ row.label }} Total</td>
                                     <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.bartenders) }}{{ wage_share(category_totals.bartenders) }}</td>
-                                </tr>
-                                <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">Waiters Total</td>
-                                    <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.waiters) }}{{ wage_share(category_totals.waiters) }}</td>
-                                </tr>
-                                <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">Runners Total</td>
-                                    <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.runners) }}{{ wage_share(category_totals.runners) }}</td>
-                                </tr>
-                                <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">Manager Total</td>
-                                    <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.managers) }}{{ wage_share(category_totals.managers) }}</td>
-                                </tr>
-                                <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">Retail Total</td>
-                                    <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_totals.retail) }}{{ wage_share(category_totals.retail) }}</td>
-                                </tr>
-                                {% for category_name, category_total in category_totals.custom.items()|sort %}
-                                <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">{{ category_name }} Total</td>
-                                    <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(category_total) }}{{ wage_share(category_total) }}</td>
+                                    <td class="fw-bold text-success">R{{ "%.2f"|format(row.amount) }}{{ wage_share(row.amount) }}</td>
                                 </tr>
                                 {% endfor %}
                                 <tr class="table-group-header border-top-3">
@@ -291,13 +266,8 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const pieSlices = [
-        { label: 'Bartenders', value: {{ category_totals.bartenders }} },
-        { label: 'Waiters', value: {{ category_totals.waiters }} },
-        { label: 'Runners', value: {{ category_totals.runners }} },
-        { label: 'Managers', value: {{ category_totals.managers }} },
-        { label: 'Retail', value: {{ category_totals.retail }} },
-        {% for category_name, category_total in category_totals.custom.items()|sort %}
-        { label: {{ category_name|tojson }}, value: {{ category_total }} },
+        {% for row in category_totals.display_rows %}
+        { label: {{ row.label|tojson }}, value: {{ row.amount }} },
         {% endfor %}
     ].filter(function(slice) { return slice.value > 0; });
 

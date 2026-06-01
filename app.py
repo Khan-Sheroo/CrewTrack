@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, session
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date, time, timedelta
+from werkzeug.security import check_password_hash, generate_password_hash
 import json
 import os
 
@@ -24,12 +25,14 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-before-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///cleaning_logs.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 
 db = SQLAlchemy(app)
 
 # Database Models
 class Cleaner(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False)
     category = db.Column(db.String(50), nullable=True)  # e.g. Bartenders, Barbacks, Runners, Waiters, Manager
     rate_type = db.Column(db.String(20), nullable=True, default='monthly')
@@ -37,6 +40,10 @@ class Cleaner(db.Model):
     flat_monthly = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)  # False = archived from hours (no new shifts)
     time_logs = db.relationship('TimeLog', backref='cleaner', lazy=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('owner_id', 'name', name='uq_cleaner_owner_name'),
+    )
 
 class TimeLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -48,6 +55,100 @@ class TimeLog(db.Model):
     hours_worked = db.Column(db.Float, nullable=True)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    cleaners = db.relationship('Cleaner', backref='owner', lazy=True)
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+
+def normalize_email(raw_email: str) -> str | None:
+    """Normalize and validate an email address."""
+    email = (raw_email or '').strip().lower()
+    if not email or '@' not in email or len(email) > 255:
+        return None
+    return email
+
+
+def get_current_user():
+    """Return the logged-in user or None."""
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    return db.session.get(User, user_id)
+
+
+def get_current_owner_id() -> int | None:
+    """Return the current tenant (account) id."""
+    user = get_current_user()
+    return user.id if user else None
+
+
+def cleaners_query():
+    """Staff query scoped to the logged-in account."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return Cleaner.query.filter(db.false())
+    return Cleaner.query.filter_by(owner_id=owner_id)
+
+
+def timelogs_query():
+    """Time log query scoped to the logged-in account."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return TimeLog.query.filter(db.false())
+    return TimeLog.query.join(Cleaner).filter(Cleaner.owner_id == owner_id)
+
+
+def get_cleaner_for_owner(cleaner_id: int, owner_id: int | None = None):
+    """Return a staff member if it belongs to the current account."""
+    owner_id = owner_id if owner_id is not None else get_current_owner_id()
+    if owner_id is None:
+        return None
+    return cleaners_query().filter_by(id=cleaner_id).first()
+
+
+def get_time_log_for_owner(log_id: int):
+    """Return a log entry if it belongs to the current account."""
+    return timelogs_query().filter(TimeLog.id == log_id).first()
+
+
+def get_tenant_log_year_month_options() -> tuple[list[int], list[int]]:
+    """Distinct years and months from logs for the current account."""
+    owner_id = get_current_owner_id()
+    year_query = db.session.query(db.func.strftime('%Y', TimeLog.date).label('year'))
+    month_query = db.session.query(db.func.strftime('%m', TimeLog.date).label('month'))
+    if owner_id is not None:
+        year_query = year_query.join(Cleaner, TimeLog.cleaner_id == Cleaner.id).filter(
+            Cleaner.owner_id == owner_id
+        )
+        month_query = month_query.join(Cleaner, TimeLog.cleaner_id == Cleaner.id).filter(
+            Cleaner.owner_id == owner_id
+        )
+    else:
+        year_query = year_query.filter(db.false())
+        month_query = month_query.filter(db.false())
+
+    years = [
+        int(row.year)
+        for row in year_query.distinct().order_by(db.func.strftime('%Y', TimeLog.date).desc()).all()
+        if row.year is not None
+    ]
+    months = [
+        int(row.month)
+        for row in month_query.distinct().order_by(db.func.strftime('%m', TimeLog.date)).all()
+        if row.month is not None
+    ]
+    return years, months
+
 
 DEFAULT_STAFF_CATEGORIES = [
     "Bartenders", "Barbacks", "Waiters", "Runners", "Manager", "Retail"
@@ -77,12 +178,16 @@ def normalize_category_name(raw_category: str) -> str | None:
 
 
 def get_all_staff_categories() -> list:
-    """Return default categories plus any custom ones already in use."""
+    """Return default categories plus any custom ones already in use for this account."""
+    owner_id = get_current_owner_id()
+    query = db.session.query(Cleaner.category).filter(
+        Cleaner.category.isnot(None),
+        Cleaner.category != ''
+    )
+    if owner_id is not None:
+        query = query.filter(Cleaner.owner_id == owner_id)
     db_categories = {
-        row[0] for row in db.session.query(Cleaner.category).filter(
-            Cleaner.category.isnot(None),
-            Cleaner.category != ''
-        ).distinct().all()
+        row[0] for row in query.distinct().all()
         if row[0]
     }
     categories = set(DEFAULT_STAFF_CATEGORIES)
@@ -324,6 +429,15 @@ def ensure_cleaner_schema() -> None:
         db.text("UPDATE cleaner SET category = 'Manager' WHERE category = 'Shop'")
     )
 
+    if 'owner_id' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE cleaner ADD COLUMN owner_id INTEGER"))
+        first_user = db.session.query(User).order_by(User.id).first()
+        if first_user:
+            db.session.execute(
+                db.text("UPDATE cleaner SET owner_id = :owner_id WHERE owner_id IS NULL"),
+                {'owner_id': first_user.id},
+            )
+
     db.session.commit()
 
 
@@ -337,6 +451,10 @@ def add_time_log(
     hours_worked: float = None
 ) -> None:
     """Insert a new shift or time log entry."""
+    cleaner = get_cleaner_for_owner(cleaner_id)
+    if not cleaner:
+        raise ValueError('Staff member not found for this account')
+
     new_log = TimeLog(
         cleaner_id=cleaner_id,
         date=date,
@@ -351,14 +469,15 @@ def add_time_log(
 
 def get_daily_logs(cleaner_id: int = None):
     """Retrieve daily logs (optionally filtered by cleaner)."""
-    query = TimeLog.query
+    query = timelogs_query()
     if cleaner_id:
-        query = query.filter_by(cleaner_id=cleaner_id)
+        query = query.filter(TimeLog.cleaner_id == cleaner_id)
     return query.order_by(TimeLog.date.desc()).all()
 
+
 def get_time_log_by_id(log_id: int):
-    """Retrieve a specific time log by ID."""
-    return TimeLog.query.get(log_id)
+    """Retrieve a specific time log by ID for the current account."""
+    return get_time_log_for_owner(log_id)
 
 def get_monthly_rate(cleaner_name: str, cleaner_category: str, log_date: date = None) -> float:
     """Get monthly rate for a cleaner based on name and category.
@@ -553,7 +672,7 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
 
 def build_staff_invoice_data(cleaner: "Cleaner", date_from: date, date_to: date) -> dict:
     """Build printable invoice data for one staff member over a date range."""
-    logs = TimeLog.query.filter(
+    logs = timelogs_query().filter(
         TimeLog.cleaner_id == cleaner.id,
         TimeLog.date >= date_from,
         TimeLog.date <= date_to
@@ -647,6 +766,21 @@ def _calculate_category_totals(ordered_data, period_bucket_key):
             category_totals['custom'][category_name] = category_total
 
         category_totals['grand_total'] += category_total
+
+    category_totals['display_rows'] = []
+    for category_name, staff_members in ordered_data.items():
+        category_total = round(
+            sum(
+                period_data['total']
+                for cleaner_data in staff_members.values()
+                for period_data in cleaner_data[period_bucket_key].values()
+            ),
+            2,
+        )
+        category_totals['display_rows'].append({
+            'label': category_name,
+            'amount': category_total,
+        })
 
     return category_totals
 
@@ -773,10 +907,18 @@ def get_wage_category_comparison(
 
 def get_available_log_months() -> list[tuple[int, int]]:
     """Return distinct (year, month) pairs that have logged hours, newest first."""
-    rows = db.session.query(
+    owner_id = get_current_owner_id()
+    month_query = db.session.query(
         db.func.strftime('%Y', TimeLog.date).label('year'),
         db.func.strftime('%m', TimeLog.date).label('month'),
-    ).distinct().order_by(
+    )
+    if owner_id is not None:
+        month_query = month_query.join(Cleaner, TimeLog.cleaner_id == Cleaner.id).filter(
+            Cleaner.owner_id == owner_id
+        )
+    else:
+        month_query = month_query.filter(db.false())
+    rows = month_query.distinct().order_by(
         db.func.strftime('%Y', TimeLog.date).desc(),
         db.func.strftime('%m', TimeLog.date).desc(),
     ).all()
@@ -811,7 +953,7 @@ def resolve_wage_compare_params(args, today: date | None = None) -> tuple[int, i
 def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_to=None):
     """Group logs by cleaner and week with pay totals and tracked hours."""
     query = _filter_timelog_query(
-        TimeLog.query,
+        timelogs_query(),
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=date_from,
@@ -873,7 +1015,7 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
             # Determine days per month: December = 26, others = 24
             days_in_month = 26 if month == 12 else 24
             log_date = week_data['log_date']
-            cleaner = Cleaner.query.filter_by(name=cleaner_name).first()
+            cleaner = cleaners_query().filter_by(name=cleaner_name).first()
             rate_type, rate_amount = get_cleaner_rate_config(cleaner, log_date) if cleaner else ('monthly', get_monthly_rate(cleaner_name, cleaner_category, log_date))
             flat_monthly = is_flat_monthly(cleaner) if cleaner else False
             if flat_monthly:
@@ -968,9 +1110,8 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
         date_from: Optional start date for custom range (inclusive)
         date_to: Optional end date for custom range (inclusive)
     """
-    query = TimeLog.query
     query = _filter_timelog_query(
-        query,
+        timelogs_query(),
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=date_from,
@@ -1030,7 +1171,7 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
             month_int = int(month)
             days_in_month = 26 if month_int == 12 else 24
             month_date = date(year_int, month_int, 1)
-            cleaner = Cleaner.query.get(cleaner_id)
+            cleaner = get_cleaner_for_owner(cleaner_id)
             rate_type, rate_amount = get_cleaner_rate_config(cleaner, month_date) if cleaner else ('monthly', get_monthly_rate(cleaner_name, cleaner_category, month_date))
             flat_monthly = is_flat_monthly(cleaner) if cleaner else False
             normalized_rate_type = normalize_rate_type(rate_type)
@@ -1129,7 +1270,7 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
 
 def get_monthly_totals_with_details():
     """Group logs by cleaner and month with individual log details."""
-    logs = TimeLog.query.order_by(TimeLog.date.desc()).all()
+    logs = timelogs_query().order_by(TimeLog.date.desc()).all()
     monthly_data = {}
     
     for log in logs:
@@ -1168,7 +1309,7 @@ def get_monthly_totals_with_details():
 
 def get_monthly_totals_by_category():
     """Group monthly totals by category with individual log details."""
-    logs = TimeLog.query.order_by(TimeLog.date.desc()).all()
+    logs = timelogs_query().order_by(TimeLog.date.desc()).all()
     category_data = {}
 
     for log in logs:
@@ -1213,7 +1354,7 @@ def get_monthly_totals_by_category():
 
 def get_cleaners_by_category(active_only=True, archived_only=False):
     """Group cleaners by category for display in forms and staff lists."""
-    query = Cleaner.query
+    query = cleaners_query()
     if active_only:
         query = query.filter_by(active=True)
     elif archived_only:
@@ -1235,7 +1376,7 @@ def get_logs_by_staff_and_date(filter_year=None, filter_month=None, date_from=No
     """Group logs by staff member, showing dates they worked. 
     Returns a dictionary with cleaner_id -> {name, category, dates: [list of date objects]}."""
     query = _filter_timelog_query(
-        TimeLog.query.order_by(TimeLog.date.desc()),
+        timelogs_query().order_by(TimeLog.date.desc()),
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=date_from,
@@ -1292,7 +1433,7 @@ def get_staff_by_category_with_dates(filter_year=None, filter_month=None, date_f
 def get_staff_by_date(filter_year=None, filter_month=None, date_from=None, date_to=None):
     """Group logs by date, showing which staff members worked on each date."""
     query = _filter_timelog_query(
-        TimeLog.query.order_by(TimeLog.date.desc()),
+        timelogs_query().order_by(TimeLog.date.desc()),
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=date_from,
@@ -1391,7 +1532,7 @@ def get_dashboard_stats():
     month_start = date(filter_year, filter_month, 1)
     month_end = date(filter_year, filter_month, monthrange(filter_year, filter_month)[1])
 
-    month_logs = TimeLog.query.filter(
+    month_logs = timelogs_query().filter(
         TimeLog.date >= month_start,
         TimeLog.date <= month_end,
     ).all()
@@ -1406,22 +1547,24 @@ def get_dashboard_stats():
     )
 
     staff_working_today = (
-        db.session.query(TimeLog.cleaner_id)
+        timelogs_query()
         .filter(TimeLog.date == today)
+        .with_entities(TimeLog.cleaner_id)
         .distinct()
         .count()
     )
 
     recent_logs = (
-        TimeLog.query.order_by(TimeLog.date.desc(), TimeLog.created_at.desc())
+        timelogs_query()
+        .order_by(TimeLog.date.desc(), TimeLog.created_at.desc())
         .limit(10)
         .all()
     )
 
     return {
         'period_label': today.strftime('%B %Y'),
-        'active_staff': Cleaner.query.filter_by(active=True).count(),
-        'archived_staff': Cleaner.query.filter_by(active=False).count(),
+        'active_staff': cleaners_query().filter_by(active=True).count(),
+        'archived_staff': cleaners_query().filter_by(active=False).count(),
         'logs_this_month': logs_count,
         'hours_this_month': hours_count,
         'wage_bill_this_month': category_totals['grand_total'],
@@ -1431,12 +1574,142 @@ def get_dashboard_stats():
     }
 
 
+def ensure_user_schema() -> None:
+    """Create the user table and migrate legacy username columns to email."""
+    db.create_all()
+    existing_tables = db.session.execute(
+        db.text("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
+    ).fetchall()
+    if not existing_tables:
+        return
+
+    existing_columns = {
+        row[1] for row in db.session.execute(db.text("PRAGMA table_info(user)")).fetchall()
+    }
+
+    if 'email' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE user ADD COLUMN email VARCHAR(255)"))
+
+    existing_columns = {
+        row[1] for row in db.session.execute(db.text("PRAGMA table_info(user)")).fetchall()
+    }
+
+    if 'username' in existing_columns:
+        db.session.execute(
+            db.text(
+                "UPDATE user SET email = CASE "
+                "WHEN instr(lower(trim(username)), '@') > 0 THEN lower(trim(username)) "
+                "ELSE lower(trim(username)) || '@legacy.local' "
+                "END "
+                "WHERE email IS NULL OR trim(email) = ''"
+            )
+        )
+
+    db.session.commit()
+
+
+PUBLIC_ENDPOINTS = frozenset({'login', 'register', 'static'})
+
+
 # Routes
 @app.before_request
 def ensure_schema_before_request():
     """Keep the SQLite schema aligned with the current model before handling requests."""
     ensure_cleaner_schema()
     ensure_time_log_schema()
+    ensure_user_schema()
+
+
+@app.before_request
+def require_login():
+    """Redirect unauthenticated users to the login page."""
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return
+    if not session.get('user_id'):
+        flash('Please log in to continue.', 'error')
+        return redirect(url_for('login', next=request.path))
+
+
+@app.context_processor
+def inject_current_user():
+    return {'current_user': get_current_user()}
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Sign in to CrewTrack."""
+    if session.get('user_id'):
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        email = normalize_email(request.form.get('email'))
+        password = request.form.get('password') or ''
+
+        if not email or not password:
+            flash('Email and password are required.', 'error')
+            return render_template('login.html')
+
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.check_password(password):
+            flash('Invalid email or password.', 'error')
+            return render_template('login.html')
+
+        session.clear()
+        session['user_id'] = user.id
+        session.permanent = bool(request.form.get('remember'))
+        flash(f'Welcome back!', 'success')
+
+        next_url = request.args.get('next') or request.form.get('next')
+        if next_url and next_url.startswith('/'):
+            return redirect(next_url)
+        return redirect(url_for('index'))
+
+    return render_template('login.html', next=request.args.get('next', ''))
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Create a new CrewTrack account."""
+    if session.get('user_id'):
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        email = normalize_email(request.form.get('email'))
+        password = request.form.get('password') or ''
+        confirm = request.form.get('confirm_password') or ''
+
+        if not email:
+            flash('Please enter a valid email address.', 'error')
+            return render_template('register.html')
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+            return render_template('register.html')
+        if password != confirm:
+            flash('Passwords do not match.', 'error')
+            return render_template('register.html')
+        if User.query.filter_by(email=email).first():
+            flash('An account with that email already exists.', 'error')
+            return render_template('register.html')
+
+        user = User(email=email)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+
+        session.clear()
+        session['user_id'] = user.id
+        flash('Account created. You are now signed in.', 'success')
+        return redirect(url_for('index'))
+
+    return render_template('register.html')
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    """Sign out."""
+    session.clear()
+    flash('You have been signed out.', 'success')
+    return redirect(url_for('login'))
 
 
 @app.route('/')
@@ -1473,7 +1746,7 @@ def manage_logs():
     has_archived = any(cleaners for cleaners in archived_by_category.values() if cleaners)
     cleaners_by_category_all = get_cleaners_by_category(active_only=False)
     monthly_data_by_category = get_monthly_totals_by_category()
-    all_cleaners = Cleaner.query.all()
+    all_cleaners = cleaners_query().order_by(Cleaner.name).all()
     display_categories = sort_display_categories(monthly_data_by_category.keys())
     return render_template(
         'manage_logs.html',
@@ -1508,7 +1781,14 @@ def staff_logged_dates():
     except (TypeError, ValueError):
         return jsonify({'error': 'Invalid staff selection'}), 400
 
-    logs = TimeLog.query.filter(TimeLog.cleaner_id.in_(cleaner_ids)).order_by(
+    allowed_ids = {
+        row[0] for row in cleaners_query().filter(Cleaner.id.in_(cleaner_ids)).with_entities(Cleaner.id).all()
+    }
+    cleaner_ids = [cid for cid in cleaner_ids if cid in allowed_ids]
+    if not cleaner_ids:
+        return jsonify({'dates': [], 'details': {}})
+
+    logs = timelogs_query().filter(TimeLog.cleaner_id.in_(cleaner_ids)).order_by(
         TimeLog.date.asc(),
         TimeLog.created_at.asc()
     ).all()
@@ -1546,7 +1826,7 @@ def submit_log():
 
     try:
         cleaner_ids = [int(cid) for cid in cleaner_ids]
-        selected_cleaners = Cleaner.query.filter(Cleaner.id.in_(cleaner_ids)).all()
+        selected_cleaners = cleaners_query().filter(Cleaner.id.in_(cleaner_ids)).all()
         if len(selected_cleaners) != len(set(cleaner_ids)):
             flash('One or more selected staff members could not be found', 'error')
             return redirect(url_for('log_form'))
@@ -1647,7 +1927,7 @@ def update_log():
         log_id = int(log_id)
         cleaner_id = int(cleaner_id)
         work_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        cleaner = Cleaner.query.get(cleaner_id)
+        cleaner = get_cleaner_for_owner(cleaner_id)
         if not cleaner:
             flash('Staff member not found', 'error')
             return redirect(url_for('index'))
@@ -1747,11 +2027,7 @@ def weekly_totals():
         date_to=filter_date_to,
     )
 
-    all_years = db.session.query(db.func.strftime('%Y', TimeLog.date).label('year')).distinct().order_by(db.func.strftime('%Y', TimeLog.date).desc()).all()
-    all_months = db.session.query(db.func.strftime('%m', TimeLog.date).label('month')).distinct().order_by(db.func.strftime('%m', TimeLog.date)).all()
-
-    years = [int(row.year) for row in all_years if row.year is not None]
-    months = [int(row.month) for row in all_months if row.month is not None]
+    years, months = get_tenant_log_year_month_options()
 
     filter_query_string = (
         request.query_string.decode()
@@ -1838,13 +2114,7 @@ def monthly_totals():
         date_to=filter_date_to
     )
     
-    # Get all unique years and months from the database for the filter dropdowns
-    # Using strftime for SQLite compatibility
-    all_years = db.session.query(db.func.strftime('%Y', TimeLog.date).label('year')).distinct().order_by(db.func.strftime('%Y', TimeLog.date).desc()).all()
-    all_months = db.session.query(db.func.strftime('%m', TimeLog.date).label('month')).distinct().order_by(db.func.strftime('%m', TimeLog.date)).all()
-    
-    years = [int(row.year) for row in all_years if row.year is not None]
-    months = [int(row.month) for row in all_months if row.month is not None]
+    years, months = get_tenant_log_year_month_options()
 
     filter_query_string = (
         request.query_string.decode()
@@ -1870,7 +2140,7 @@ def monthly_totals():
 @app.route('/invoices')
 def invoices():
     """Preview invoices for individual staff members."""
-    cleaners = Cleaner.query.order_by(Cleaner.name).all()
+    cleaners = cleaners_query().order_by(Cleaner.name).all()
     default_from, default_to = _get_default_invoice_dates()
     cleaner_id = request.args.get('cleaner_id', type=int)
     filter_date_from = _parse_date_arg(request.args.get('date_from')) or default_from
@@ -1884,7 +2154,7 @@ def invoices():
         filter_date_from, filter_date_to = default_from, default_to
 
     if cleaner_id:
-        selected_cleaner = Cleaner.query.get(cleaner_id)
+        selected_cleaner = get_cleaner_for_owner(cleaner_id)
         if not selected_cleaner:
             flash('Staff member not found', 'error')
         else:
@@ -1917,7 +2187,7 @@ def invoice_pdf():
         flash('The invoice start date must be before the end date', 'error')
         return redirect(url_for('invoices', cleaner_id=cleaner_id, date_from=filter_date_from.isoformat(), date_to=filter_date_to.isoformat()))
 
-    cleaner = Cleaner.query.get(cleaner_id)
+    cleaner = get_cleaner_for_owner(cleaner_id)
     if not cleaner:
         flash('Staff member not found', 'error')
         return redirect(url_for('invoices'))
@@ -2147,10 +2417,7 @@ def by_date_view():
     )
     display_categories = sort_display_categories(staff_by_category.keys())
 
-    all_years = db.session.query(db.func.strftime('%Y', TimeLog.date).label('year')).distinct().order_by(db.func.strftime('%Y', TimeLog.date).desc()).all()
-    all_months = db.session.query(db.func.strftime('%m', TimeLog.date).label('month')).distinct().order_by(db.func.strftime('%m', TimeLog.date)).all()
-    years = [int(row.year) for row in all_years if row.year is not None]
-    months = [int(row.month) for row in all_months if row.month is not None]
+    years, months = get_tenant_log_year_month_options()
 
     return render_template(
         'by_date.html',
@@ -2175,7 +2442,7 @@ def archive_cleaner():
         return redirect(url_for('index'))
     try:
         cid = int(cleaner_id)
-        cleaner = Cleaner.query.get(cid)
+        cleaner = get_cleaner_for_owner(cid)
         if not cleaner:
             flash('Staff member not found', 'error')
             return redirect(url_for('index'))
@@ -2199,7 +2466,7 @@ def restore_cleaner():
         return redirect(url_for('index'))
     try:
         cid = int(cleaner_id)
-        cleaner = Cleaner.query.get(cid)
+        cleaner = get_cleaner_for_owner(cid)
         if not cleaner:
             flash('Staff member not found', 'error')
             return redirect(url_for('index'))
@@ -2248,13 +2515,19 @@ def add_staff():
             return redirect(url_for('index'))
 
         # Check if staff member already exists
-        existing = Cleaner.query.filter_by(name=name).first()
+        owner_id = get_current_owner_id()
+        if owner_id is None:
+            flash('Please log in to add staff.', 'error')
+            return redirect(url_for('login'))
+
+        existing = cleaners_query().filter_by(name=name).first()
         if existing:
             flash(f'Staff member "{name}" already exists!', 'error')
             return redirect(url_for('index'))
         
         # Create new staff member
         new_cleaner = Cleaner(
+            owner_id=owner_id,
             name=name,
             category=category,
             rate_type=rate_type,
@@ -2282,10 +2555,24 @@ def add_staff():
 def clear_db():
     """Delete all staff and logs. For testing only."""
     try:
-        log_count = TimeLog.query.count()
-        staff_count = Cleaner.query.count()
-        TimeLog.query.delete()
-        Cleaner.query.delete()
+        owner_id = get_current_owner_id()
+        if owner_id is None:
+            flash('Please log in to clear data.', 'error')
+            return redirect(url_for('login'))
+
+        tenant_cleaner_ids = [
+            row[0] for row in db.session.query(Cleaner.id).filter_by(owner_id=owner_id).all()
+        ]
+        log_count = (
+            TimeLog.query.filter(TimeLog.cleaner_id.in_(tenant_cleaner_ids)).count()
+            if tenant_cleaner_ids else 0
+        )
+        staff_count = len(tenant_cleaner_ids)
+        if tenant_cleaner_ids:
+            TimeLog.query.filter(TimeLog.cleaner_id.in_(tenant_cleaner_ids)).delete(
+                synchronize_session=False
+            )
+        Cleaner.query.filter_by(owner_id=owner_id).delete(synchronize_session=False)
         db.session.commit()
         flash(f'Database cleared ({log_count} log(s), {staff_count} staff member(s) removed).', 'success')
     except Exception:
@@ -2301,14 +2588,19 @@ def init_db():
     ensure_cleaner_schema()
     ensure_time_log_schema()
     
-    # Add sample cleaners if none exist
-    if not Cleaner.query.first():
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        flash('Please log in to initialize sample data.', 'error')
+        return redirect(url_for('login'))
+
+    # Add sample cleaners if none exist for this account
+    if not cleaners_query().first():
         sample_cleaners = [
-            Cleaner(name='Nancy Z'),
-            Cleaner(name='Ettie T'),
-            Cleaner(name='Daniel B'),
-            Cleaner(name='Lina Y'),
-            Cleaner(name='Stephan M')
+            Cleaner(owner_id=owner_id, name='Nancy Z'),
+            Cleaner(owner_id=owner_id, name='Ettie T'),
+            Cleaner(owner_id=owner_id, name='Daniel B'),
+            Cleaner(owner_id=owner_id, name='Lina Y'),
+            Cleaner(owner_id=owner_id, name='Stephan M')
         ]
         db.session.add_all(sample_cleaners)
         db.session.commit()
@@ -2321,4 +2613,5 @@ if __name__ == '__main__':
         db.create_all()
         ensure_cleaner_schema()
         ensure_time_log_schema()
+        ensure_user_schema()
     app.run(debug=True)

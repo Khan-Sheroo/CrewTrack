@@ -16,11 +16,13 @@ from datetime import date, datetime, time, timedelta
 from app import (
     Cleaner,
     TimeLog,
+    User,
     app,
     calculate_hours_worked,
     db,
     ensure_cleaner_schema,
     ensure_time_log_schema,
+    ensure_user_schema,
 )
 
 SEED_RANDOM = random.Random(202604)
@@ -60,7 +62,7 @@ def round_rate(rate_type: str, amount: float) -> float:
     return round(amount / 100) * 100 or 5000.0
 
 
-def build_staff() -> list[Cleaner]:
+def build_staff(owner_id: int) -> list[Cleaner]:
     names = list(zip(FIRST_NAMES, LAST_NAMES))
     SEED_RANDOM.shuffle(names)
 
@@ -74,6 +76,7 @@ def build_staff() -> list[Cleaner]:
 
         cleaners.append(
             Cleaner(
+                owner_id=owner_id,
                 name=f"{first} {last}",
                 category=category,
                 rate_type=rate_type,
@@ -162,7 +165,21 @@ def logs_for_cleaner(cleaner: Cleaner, work_days: list[date]) -> list[TimeLog]:
 def clear_database() -> None:
     TimeLog.query.delete()
     Cleaner.query.delete()
+    User.query.delete()
     db.session.commit()
+
+
+def ensure_seed_user(email: str = 'demo@crewtrack.local', password: str = 'demo12345') -> User:
+    """Create or return the demo account used for seed data."""
+    user = User.query.filter_by(email=email).first()
+    if user:
+        return user
+    user = User(email=email)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    print(f'Created login user: {email} / {password}')
+    return user
 
 
 def seed(clear: bool = False) -> None:
@@ -170,21 +187,32 @@ def seed(clear: bool = False) -> None:
         db.create_all()
         ensure_cleaner_schema()
         ensure_time_log_schema()
+        ensure_user_schema()
+
+        seed_user = ensure_seed_user()
 
         if clear:
-            clear_database()
-            print("Cleared existing staff and logs.")
+            tenant_ids = [
+                row[0] for row in db.session.query(Cleaner.id).filter_by(owner_id=seed_user.id).all()
+            ]
+            if tenant_ids:
+                TimeLog.query.filter(TimeLog.cleaner_id.in_(tenant_ids)).delete(
+                    synchronize_session=False
+                )
+            Cleaner.query.filter_by(owner_id=seed_user.id).delete(synchronize_session=False)
+            db.session.commit()
+            print("Cleared existing seed staff and logs for the demo account.")
+        else:
+            existing = Cleaner.query.filter_by(owner_id=seed_user.id).count()
+            if existing:
+                print(f"Demo account already has {existing} staff member(s).")
+                print("Run with --clear to replace seed data for that account.")
+                return
 
-        existing = Cleaner.query.count()
-        if existing and not clear:
-            print(f"Database already has {existing} staff member(s).")
-            print("Run with --clear to replace everything with seed data.")
-            return
-
-        cleaners = build_staff()
+        cleaners = build_staff(seed_user.id)
         db.session.add_all(cleaners)
         db.session.commit()
-        print(f"Created {len(cleaners)} staff members.")
+        print(f"Created {len(cleaners)} staff members for {seed_user.email}.")
 
         total_logs = 0
         for year, month in SEED_MONTHS:

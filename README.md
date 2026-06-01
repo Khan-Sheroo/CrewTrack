@@ -76,6 +76,8 @@ Populate the database with 10 staff members and two months of sample logs (April
 python seed.py --clear
 ```
 
+This also creates a demo login **`demo@crewtrack.local`** / **`demo12345`** if that account does not exist yet. Each registered email has its own isolated staff and logs.
+
 ## Project layout
 
 | Path | Purpose |

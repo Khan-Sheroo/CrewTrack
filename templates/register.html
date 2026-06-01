@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Register - CrewTrack{% endblock %}
+
+{% block extra_css %}
+<style>
+    .auth-wrap {
+        max-width: 420px;
+        margin: 2rem auto;
+    }
+    .auth-card .card-body {
+        padding: 2rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+    <div class="card auth-card">
+        <div class="card-body">
+            <div class="text-center mb-4">
+                <i class="fas fa-user-plus fa-2x text-success mb-2"></i>
+                <h4 class="mb-1">Create an account</h4>
+                <p class="text-muted small mb-0">Each email gets its own isolated workspace</p>
+            </div>
+
+            <form method="POST" action="{{ url_for('register') }}">
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" name="email"
+                           autocomplete="email" required autofocus>
+                </div>
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" name="password"
+                           autocomplete="new-password" minlength="8" required>
+                    <div class="form-text">At least 8 characters.</div>
+                </div>
+                <div class="mb-3">
+                    <label for="confirm_password" class="form-label">Confirm password</label>
+                    <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                           autocomplete="new-password" minlength="8" required>
+                </div>
+                <button type="submit" class="btn btn-success w-100 mb-3">
+                    <i class="fas fa-user-check me-2"></i>Create Account
+                </button>
+            </form>
+
+            <p class="text-center text-muted small mb-0">
+                Already have an account?
+                <a href="{{ url_for('login') }}">Sign in</a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
