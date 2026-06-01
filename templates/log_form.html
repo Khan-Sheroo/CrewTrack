@@ -74,7 +74,7 @@
                 </h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="{{ url_for('submit_log') }}">
+                <form method="POST" action="{{ url_for('submit_log') }}" id="log_form">
                     <div class="mb-3">
                         <label class="form-label">
                             <i class="fas fa-user-friends me-2"></i>FOH Staff
@@ -288,7 +288,10 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const form = document.querySelector('form');
+    const form = document.getElementById('log_form');
+    if (!form) {
+        return;
+    }
     const shiftLogRadio = document.getElementById('log_type_shift');
     const timeLogRadio = document.getElementById('log_type_time');
     const cleanerCheckboxes = document.querySelectorAll('input[name="cleaner_ids[]"]');
@@ -757,9 +760,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const batches = buildAllBatchesForSubmit();
-        if (!batches || batches.length === 0) {
+        if (batches === null) {
             event.preventDefault();
-            alert('Please select at least one date on the calendar.');
+            alert('Please enter a start time and end time for your selected dates (or add a timeslot to the queue).');
+            return;
+        }
+        if (batches.length === 0) {
+            event.preventDefault();
+            alert('Please select at least one date on the calendar (or add a timeslot to the queue).');
             return;
         }
 
