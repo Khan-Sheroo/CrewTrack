@@ -60,6 +60,8 @@ Web app for logging FOH staff shifts and hours, calculating wages, and producing
 
    Edit `.env` and set a strong `SECRET_KEY`.
 
+   For **forgot password** emails, configure SMTP in `.env` (see `.env.example`). Without SMTP, reset links are printed to the terminal when you request a reset (fine for local development).
+
 5. **Run the app**
 
    ```bash

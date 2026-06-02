@@ -37,6 +37,9 @@
                     <label for="password" class="form-label">Password</label>
                     <input type="password" class="form-control" id="password" name="password"
                            autocomplete="current-password" required>
+                    <div class="form-text text-end">
+                        <a href="{{ url_for('forgot_password') }}">Forgot password?</a>
+                    </div>
                 </div>
                 <div class="mb-3 form-check">
                     <input type="checkbox" class="form-check-input" id="remember" name="remember">

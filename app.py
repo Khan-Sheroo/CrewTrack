@@ -2,8 +2,14 @@ from flask import Flask, render_template, request, redirect, url_for, flash, Res
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date, time, timedelta
 from werkzeug.security import check_password_hash, generate_password_hash
+import hashlib
 import json
+import logging
 import os
+import secrets
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 try:
     from dotenv import load_dotenv
@@ -26,8 +32,17 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-befor
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///cleaning_logs.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+app.config['PASSWORD_RESET_EXPIRY_HOURS'] = int(os.environ.get('PASSWORD_RESET_EXPIRY_HOURS', '1'))
+app.config['APP_BASE_URL'] = (os.environ.get('APP_BASE_URL') or '').rstrip('/')
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', '')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', '587'))
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', '1').lower() in ('1', 'true', 'yes')
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+app.config['MAIL_FROM'] = os.environ.get('MAIL_FROM', '') or os.environ.get('MAIL_USERNAME', '')
 
 db = SQLAlchemy(app)
+logger = logging.getLogger(__name__)
 
 # Database Models
 class Cleaner(db.Model):
@@ -70,6 +85,16 @@ class User(db.Model):
         return check_password_hash(self.password_hash, password)
 
 
+class PasswordResetToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    used_at = db.Column(db.DateTime, nullable=True)
+    user = db.relationship('User', backref=db.backref('password_reset_tokens', lazy=True))
+
+
 def normalize_email(raw_email: str) -> str | None:
     """Normalize and validate an email address."""
     email = (raw_email or '').strip().lower()
@@ -84,6 +109,134 @@ def get_current_user():
     if not user_id:
         return None
     return db.session.get(User, user_id)
+
+
+def validate_password(password: str) -> str | None:
+    """Return an error message if the password is invalid, else None."""
+    if len(password) < 8:
+        return 'Password must be at least 8 characters.'
+    return None
+
+
+def _hash_reset_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
+
+
+def mail_is_configured() -> bool:
+    return bool(app.config['MAIL_SERVER'] and app.config['MAIL_FROM'])
+
+
+def get_app_base_url() -> str:
+    """Public base URL for links in emails (falls back to the current request host)."""
+    configured = app.config.get('APP_BASE_URL') or ''
+    if configured:
+        return configured.rstrip('/')
+    if request:
+        return request.host_url.rstrip('/')
+    return 'http://127.0.0.1:5000'
+
+
+def build_password_reset_url(raw_token: str) -> str:
+    base = get_app_base_url()
+    with app.test_request_context(base_url=f"{base}/"):
+        return url_for('reset_password', token=raw_token, _external=True)
+
+
+def create_password_reset_token(user: User) -> str:
+    """Create a one-time reset token and return the raw value for the reset link."""
+    PasswordResetToken.query.filter_by(user_id=user.id, used_at=None).delete(
+        synchronize_session=False
+    )
+    raw_token = secrets.token_urlsafe(32)
+    reset = PasswordResetToken(
+        user_id=user.id,
+        token_hash=_hash_reset_token(raw_token),
+        expires_at=datetime.utcnow() + timedelta(hours=app.config['PASSWORD_RESET_EXPIRY_HOURS']),
+    )
+    db.session.add(reset)
+    db.session.commit()
+    return raw_token
+
+
+def get_user_for_reset_token(raw_token: str) -> User | None:
+    """Return the user for a valid, unused reset token."""
+    if not raw_token:
+        return None
+    record = PasswordResetToken.query.filter_by(
+        token_hash=_hash_reset_token(raw_token),
+        used_at=None,
+    ).first()
+    if not record or record.expires_at < datetime.utcnow():
+        return None
+    return db.session.get(User, record.user_id)
+
+
+def mark_reset_token_used(raw_token: str) -> None:
+    record = PasswordResetToken.query.filter_by(
+        token_hash=_hash_reset_token(raw_token),
+        used_at=None,
+    ).first()
+    if record:
+        record.used_at = datetime.utcnow()
+        db.session.commit()
+
+
+def send_password_reset_email(user: User, reset_url: str) -> bool:
+    """Send the password reset email. Returns True when sent."""
+    if not mail_is_configured():
+        return False
+
+    subject = 'Reset your CrewTrack password'
+    text_body = (
+        f"Hello,\n\n"
+        f"We received a request to reset the password for your CrewTrack account ({user.email}).\n\n"
+        f"Open this link to choose a new password (expires in "
+        f"{app.config['PASSWORD_RESET_EXPIRY_HOURS']} hour(s)):\n\n"
+        f"{reset_url}\n\n"
+        f"If you did not request this, you can ignore this email.\n"
+    )
+    html_body = (
+        f"<p>Hello,</p>"
+        f"<p>We received a request to reset the password for your CrewTrack account "
+        f"(<strong>{user.email}</strong>).</p>"
+        f"<p><a href=\"{reset_url}\">Reset your password</a> "
+        f"(link expires in {app.config['PASSWORD_RESET_EXPIRY_HOURS']} hour(s)).</p>"
+        f"<p>If you did not request this, you can ignore this email.</p>"
+    )
+
+    message = MIMEMultipart('alternative')
+    message['Subject'] = subject
+    message['From'] = app.config['MAIL_FROM']
+    message['To'] = user.email
+    message.attach(MIMEText(text_body, 'plain'))
+    message.attach(MIMEText(html_body, 'html'))
+
+    with smtplib.SMTP(app.config['MAIL_SERVER'], app.config['MAIL_PORT']) as smtp:
+        if app.config['MAIL_USE_TLS']:
+            smtp.starttls()
+        if app.config['MAIL_USERNAME']:
+            smtp.login(app.config['MAIL_USERNAME'], app.config['MAIL_PASSWORD'])
+        smtp.sendmail(app.config['MAIL_FROM'], [user.email], message.as_string())
+    return True
+
+
+def initiate_password_reset(email: str) -> None:
+    """Start a password reset if the account exists (always appears successful to the caller)."""
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return
+
+    raw_token = create_password_reset_token(user)
+    reset_url = build_password_reset_url(raw_token)
+
+    if send_password_reset_email(user, reset_url):
+        return
+
+    logger.warning(
+        'Password reset for %s (email not configured). Reset link: %s',
+        user.email,
+        reset_url,
+    )
 
 
 def get_current_owner_id() -> int | None:
@@ -1608,7 +1761,14 @@ def ensure_user_schema() -> None:
     db.session.commit()
 
 
-PUBLIC_ENDPOINTS = frozenset({'login', 'register', 'static'})
+def ensure_password_reset_schema() -> None:
+    """Create the password reset token table if needed."""
+    db.create_all()
+
+
+PUBLIC_ENDPOINTS = frozenset({
+    'login', 'register', 'forgot_password', 'reset_password', 'static',
+})
 
 
 # Routes
@@ -1618,6 +1778,7 @@ def ensure_schema_before_request():
     ensure_cleaner_schema()
     ensure_time_log_schema()
     ensure_user_schema()
+    ensure_password_reset_schema()
 
 
 @app.before_request
@@ -1681,8 +1842,9 @@ def register():
         if not email:
             flash('Please enter a valid email address.', 'error')
             return render_template('register.html')
-        if len(password) < 8:
-            flash('Password must be at least 8 characters.', 'error')
+        password_error = validate_password(password)
+        if password_error:
+            flash(password_error, 'error')
             return render_template('register.html')
         if password != confirm:
             flash('Passwords do not match.', 'error')
@@ -1710,6 +1872,70 @@ def logout():
     session.clear()
     flash('You have been signed out.', 'success')
     return redirect(url_for('login'))
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    """Request a password reset link by email."""
+    if session.get('user_id'):
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        email = normalize_email(request.form.get('email'))
+        if not email:
+            flash('Please enter a valid email address.', 'error')
+            return render_template('forgot_password.html')
+
+        initiate_password_reset(email)
+
+        if mail_is_configured():
+            flash(
+                'If an account exists for that email, we sent a link to reset your password. '
+                'Check your inbox (and spam folder).',
+                'success',
+            )
+        else:
+            flash(
+                'If an account exists for that email, a reset link was written to the server console '
+                '(email is not configured yet).',
+                'success',
+            )
+        return redirect(url_for('login'))
+
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    """Set a new password using a reset token from email."""
+    if session.get('user_id'):
+        return redirect(url_for('index'))
+
+    user = get_user_for_reset_token(token)
+    if not user:
+        flash('This reset link is invalid or has expired. Please request a new one.', 'error')
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password') or ''
+        confirm = request.form.get('confirm_password') or ''
+        password_error = validate_password(password)
+        if password_error:
+            flash(password_error, 'error')
+            return render_template('reset_password.html', token=token)
+        if password != confirm:
+            flash('Passwords do not match.', 'error')
+            return render_template('reset_password.html', token=token)
+
+        user.set_password(password)
+        mark_reset_token_used(token)
+        db.session.commit()
+
+        session.clear()
+        flash('Your password has been updated. You can sign in now.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('reset_password.html', token=token)
 
 
 @app.route('/')
@@ -1761,7 +1987,7 @@ def manage_logs():
     )
 
 
-@app.route('/log', methods=['GET'])
+@app.route('/log-staff', methods=['GET'])
 def log_form():
     """Show form to add a new log entry."""
     cleaners_by_category = get_cleaners_by_category(active_only=True)
@@ -1812,7 +2038,7 @@ def staff_logged_dates():
         'details': details,
     })
 
-@app.route('/log', methods=['POST'])
+@app.route('/log-staff', methods=['POST'])
 def submit_log():
     """Handle submission of new shift or time log(s)."""
     cleaner_ids = request.form.getlist('cleaner_ids[]')
@@ -2614,4 +2840,5 @@ if __name__ == '__main__':
         ensure_cleaner_schema()
         ensure_time_log_schema()
         ensure_user_schema()
+        ensure_password_reset_schema()
     app.run(debug=True)
