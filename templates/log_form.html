@@ -237,18 +237,7 @@
                 {% set has_cleaners = true %}
             {% endif %}
         {% endfor %}
-        {% if not has_cleaners %}
-        <div class="card mt-3 border-warning">
-            <div class="card-body text-center">
-                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-2"></i>
-                <h6 class="card-title">No FOH Staff Available</h6>
-                <p class="card-text text-muted">You need to add FOH staff before you can create logs.</p>
-                <a href="{{ url_for('init_db') }}" class="btn btn-warning">
-                    <i class="fas fa-database me-2"></i>Initialize Database
-                </a>
-            </div>
-        </div>
-        {% endif %}
+        
     </div>
 </div>
 
