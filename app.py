@@ -95,6 +95,19 @@ class PasswordResetToken(db.Model):
     user = db.relationship('User', backref=db.backref('password_reset_tokens', lazy=True))
 
 
+class WeeklyShiftRoster(db.Model):
+    """Weekly shift schedule grid for a manager (staff rows × day columns)."""
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    week_start = db.Column(db.Date, nullable=False)
+    rows_data = db.Column(db.Text, nullable=False, default='[]')
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('owner_id', 'week_start', name='uq_shift_roster_owner_week'),
+    )
+
+
 def normalize_email(raw_email: str) -> str | None:
     """Normalize and validate an email address."""
     email = (raw_email or '').strip().lower()
@@ -1042,6 +1055,19 @@ def build_wage_category_comparison(
     }
 
 
+def build_wage_comparison_chart_rows(wage_comparison: dict) -> list[dict]:
+    """Return chart rows for the wage comparison bar chart."""
+    return [
+        {
+            'label': row['label'],
+            'amountA': row['amount_a'],
+            'amountB': row['amount_b'],
+        }
+        for row in wage_comparison.get('rows', [])
+        if not row.get('is_grand_total') and (row['amount_a'] > 0 or row['amount_b'] > 0)
+    ]
+
+
 def get_wage_category_comparison(
     year_a: int,
     month_a: int,
@@ -1525,6 +1551,213 @@ def get_cleaners_by_category(active_only=True, archived_only=False):
             ordered[group_name] = grouped[group_name]
     return ordered
 
+
+DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+DEFAULT_SHIFT_ROSTER_ROW_COUNT = 10
+
+
+def build_empty_shift_roster_row() -> dict:
+    """Return a blank roster row with seven empty day slots."""
+    return {
+        'name': '',
+        'cleaner_id': None,
+        'days': [None] * 7,
+    }
+
+
+def ensure_minimum_shift_roster_rows(
+    rows: list[dict],
+    minimum: int = DEFAULT_SHIFT_ROSTER_ROW_COUNT,
+) -> list[dict]:
+    """Pad a roster to at least the default number of staff rows."""
+    padded = list(rows)
+    while len(padded) < minimum:
+        padded.append(build_empty_shift_roster_row())
+    return padded
+
+
+def get_week_start(reference: date | None = None) -> date:
+    """Return the Monday on or before the given date (defaults to today)."""
+    reference = reference or date.today()
+    return reference - timedelta(days=reference.weekday())
+
+
+def parse_week_start_param(raw_week: str | None, fallback: date | None = None) -> date:
+    """Parse YYYY-MM-DD week param; invalid values fall back to the current week."""
+    if raw_week:
+        try:
+            parsed = datetime.strptime(raw_week, '%Y-%m-%d').date()
+            return get_week_start(parsed)
+        except ValueError:
+            pass
+    return get_week_start(fallback)
+
+
+def normalize_shift_time_value(value) -> str | None:
+    """Normalize a shift time to HH:MM, or None if invalid."""
+    if value is None:
+        return None
+    parsed = parse_time_value(str(value).strip())
+    return parsed.strftime('%H:%M') if parsed else None
+
+
+def normalize_shift_day(raw_day) -> dict | None:
+    """Normalize a single day slot from legacy booleans or structured payloads."""
+    if raw_day is None or raw_day is False:
+        return None
+    if raw_day is True:
+        return {'status': 'shift', 'start': None, 'end': None}
+    if not isinstance(raw_day, dict):
+        return None
+
+    status = raw_day.get('status')
+    if not status and raw_day.get('scheduled'):
+        status = 'shift'
+    if not status:
+        return None
+
+    status = str(status).strip().lower()
+    if status == 'off':
+        return {'status': 'off', 'start': None, 'end': None}
+    if status == 'leave':
+        return {'status': 'leave', 'start': None, 'end': None}
+    if status != 'shift':
+        return None
+
+    return {
+        'status': 'shift',
+        'start': normalize_shift_time_value(raw_day.get('start')),
+        'end': normalize_shift_time_value(raw_day.get('end')),
+    }
+
+
+def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[dict]:
+    """Validate and normalize roster row payloads from the client."""
+    if not isinstance(raw_rows, list):
+        return []
+
+    allowed_cleaner_ids = None
+    if owner_id is not None:
+        allowed_cleaner_ids = {
+            row[0] for row in cleaners_query().filter_by(owner_id=owner_id, active=True)
+            .with_entities(Cleaner.id).all()
+        }
+
+    normalized = []
+    for row in raw_rows:
+        if not isinstance(row, dict):
+            continue
+        name = (row.get('name') or '').strip()
+        if not name:
+            continue
+
+        cleaner_id = row.get('cleaner_id')
+        if cleaner_id is not None:
+            try:
+                cleaner_id = int(cleaner_id)
+            except (TypeError, ValueError):
+                cleaner_id = None
+        if cleaner_id is not None and allowed_cleaner_ids is not None and cleaner_id not in allowed_cleaner_ids:
+            cleaner_id = None
+
+        days_raw = row.get('days') or []
+        days = []
+        for index in range(7):
+            raw_day = days_raw[index] if index < len(days_raw) else None
+            days.append(normalize_shift_day(raw_day))
+
+        normalized.append({
+            'name': name[:100],
+            'cleaner_id': cleaner_id,
+            'days': days,
+        })
+    return normalized
+
+
+def get_weekly_shift_roster(owner_id: int, week_start: date) -> list[dict]:
+    """Load the saved shift roster rows for a week, padded to the default row count."""
+    roster = WeeklyShiftRoster.query.filter_by(
+        owner_id=owner_id,
+        week_start=week_start,
+    ).first()
+    if not roster or not roster.rows_data:
+        return ensure_minimum_shift_roster_rows([])
+    try:
+        rows = normalize_shift_roster_rows(json.loads(roster.rows_data))
+        return ensure_minimum_shift_roster_rows(rows)
+    except (json.JSONDecodeError, TypeError):
+        return ensure_minimum_shift_roster_rows([])
+
+
+def save_weekly_shift_roster(owner_id: int, week_start: date, rows: list[dict]) -> list[dict]:
+    """Persist roster rows for a week and return the normalized payload."""
+    normalized = normalize_shift_roster_rows(rows, owner_id=owner_id)
+    roster = WeeklyShiftRoster.query.filter_by(
+        owner_id=owner_id,
+        week_start=week_start,
+    ).first()
+    payload = json.dumps(normalized)
+    if roster:
+        roster.rows_data = payload
+        roster.updated_at = datetime.utcnow()
+    else:
+        roster = WeeklyShiftRoster(
+            owner_id=owner_id,
+            week_start=week_start,
+            rows_data=payload,
+        )
+        db.session.add(roster)
+    db.session.commit()
+    return normalized
+
+
+def get_sa_public_holiday_iso_strings(*years: int) -> list[str]:
+    """Return sorted ISO date strings for SA public holidays in the given years."""
+    holiday_isos = set()
+    for year in years:
+        for holiday in get_sa_public_holidays(year):
+            holiday_isos.add(holiday.isoformat())
+    return sorted(holiday_isos)
+
+
+def build_week_day_headers(week_start: date) -> list[dict]:
+    """Return day labels and dates for a week starting on Monday."""
+    return [
+        {
+            'label': DAY_LABELS[index],
+            'iso': (day_date := week_start + timedelta(days=index)).isoformat(),
+            'display': day_date.strftime('%d %b'),
+            'multiplier': get_hourly_pay_multiplier(day_date),
+        }
+        for index in range(7)
+    ]
+
+
+def build_shift_roster_bootstrap_data(
+    *,
+    shift_active_staff: list[dict],
+    shift_category_order: list[str],
+    shift_roster_rows: list,
+    shift_week_start: date,
+    shift_week_days: list[dict],
+    assign_staff_id: str | None,
+    shift_sa_public_holidays: list[str],
+) -> dict:
+    """Return initial roster state for the dashboard JavaScript."""
+    return {
+        'activeStaff': shift_active_staff,
+        'categoryOrder': shift_category_order,
+        'initialRows': shift_roster_rows,
+        'weekStart': shift_week_start.isoformat(),
+        'initialWeekDays': shift_week_days,
+        'defaultRowCount': 10,
+        'assignStaffId': assign_staff_id,
+        'publicHolidays': shift_sa_public_holidays,
+        'sundayMultiplier': SUNDAY_HOURLY_MULTIPLIER,
+        'publicHolidayMultiplier': PUBLIC_HOLIDAY_HOURLY_MULTIPLIER,
+    }
+
+
 def get_logs_by_staff_and_date(filter_year=None, filter_month=None, date_from=None, date_to=None):
     """Group logs by staff member, showing dates they worked. 
     Returns a dictionary with cleaner_id -> {name, category, dates: [list of date objects]}."""
@@ -1945,14 +2178,53 @@ def index():
     dashboard = get_dashboard_stats()
     year_a, month_a, year_b, month_b = resolve_wage_compare_params(request.args, today)
     wage_comparison = get_wage_category_comparison(year_a, month_a, year_b, month_b)
+    wage_comparison_chart_data = {
+        'rows': build_wage_comparison_chart_rows(wage_comparison),
+        'labelA': wage_comparison['label_a'],
+        'labelB': wage_comparison['label_b'],
+    }
     available_log_months = get_available_log_months()
     cleaners_by_category = get_cleaners_by_category(active_only=True)
     archived_by_category = get_cleaners_by_category(active_only=False, archived_only=True)
     has_archived = any(cleaners for cleaners in archived_by_category.values() if cleaners)
+    all_cleaners = cleaners_query().filter_by(active=True).order_by(Cleaner.name).all()
+    shift_active_staff = []
+    for cleaner in all_cleaners:
+        rate_type, rate_amount = get_cleaner_rate_config(cleaner, today)
+        shift_active_staff.append({
+            'id': cleaner.id,
+            'name': cleaner.name,
+            'category': cleaner.category or '',
+            'group': resolve_display_group(cleaner.category or ''),
+            'rate_type': rate_type,
+            'rate_amount': rate_amount,
+            'flat_monthly': is_flat_monthly(cleaner),
+        })
+    shift_category_order = sort_display_categories({staff['group'] for staff in shift_active_staff})
+    owner_id = get_current_owner_id()
+    shift_week_start = parse_week_start_param(request.args.get('week'), today)
+    shift_roster_rows = get_weekly_shift_roster(owner_id, shift_week_start) if owner_id else []
+    shift_week_days = build_week_day_headers(shift_week_start)
+    shift_week_end = shift_week_start + timedelta(days=6)
+    shift_sa_public_holidays = get_sa_public_holiday_iso_strings(
+        shift_week_start.year,
+        shift_week_end.year,
+        today.year,
+    )
+    shift_roster_bootstrap_data = build_shift_roster_bootstrap_data(
+        shift_active_staff=shift_active_staff,
+        shift_category_order=shift_category_order,
+        shift_roster_rows=shift_roster_rows,
+        shift_week_start=shift_week_start,
+        shift_week_days=shift_week_days,
+        assign_staff_id=request.args.get('assign_staff'),
+        shift_sa_public_holidays=shift_sa_public_holidays,
+    )
     return render_template(
         'index.html',
         dashboard=dashboard,
         wage_comparison=wage_comparison,
+        wage_comparison_chart_data=wage_comparison_chart_data,
         compare_a_key=_month_key(year_a, month_a),
         compare_b_key=_month_key(year_b, month_b),
         available_log_months=available_log_months,
@@ -1961,6 +2233,14 @@ def index():
         archived_by_category=archived_by_category,
         has_archived=has_archived,
         staff_categories=get_all_staff_categories(),
+        all_cleaners=all_cleaners,
+        shift_active_staff=shift_active_staff,
+        shift_category_order=shift_category_order,
+        shift_week_start=shift_week_start,
+        shift_week_end=shift_week_end,
+        shift_week_days=shift_week_days,
+        shift_roster_rows=shift_roster_rows,
+        shift_roster_bootstrap_data=shift_roster_bootstrap_data,
     )
 
 
@@ -2037,6 +2317,41 @@ def staff_logged_dates():
         'dates': sorted(details.keys()),
         'details': details,
     })
+
+
+@app.route('/api/weekly-shift-roster', methods=['GET'])
+def get_weekly_shift_roster_api():
+    """Return the saved shift roster for a given week."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    week_start = parse_week_start_param(request.args.get('week'))
+    rows = get_weekly_shift_roster(owner_id, week_start)
+    return jsonify({
+        'week_start': week_start.isoformat(),
+        'week_end': (week_start + timedelta(days=6)).isoformat(),
+        'days': build_week_day_headers(week_start),
+        'rows': rows,
+    })
+
+
+@app.route('/api/weekly-shift-roster', methods=['POST'])
+def save_weekly_shift_roster_api():
+    """Save the shift roster grid for a week."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    week_start = parse_week_start_param(payload.get('week_start'))
+    normalized = save_weekly_shift_roster(owner_id, week_start, payload.get('rows', []))
+    return jsonify({
+        'success': True,
+        'week_start': week_start.isoformat(),
+        'rows': normalized,
+    })
+
 
 @app.route('/log-staff', methods=['POST'])
 def submit_log():
@@ -2707,6 +3022,16 @@ def restore_cleaner():
     return redirect(url_for('index'))
 
 
+def _index_redirect_kwargs(roster_assign_week: str | None = None, assign_staff_id: int | None = None) -> dict:
+    """Build index redirect params while preserving the roster week context."""
+    kwargs = {}
+    if roster_assign_week:
+        kwargs['week'] = parse_week_start_param(roster_assign_week).isoformat()
+    if assign_staff_id is not None:
+        kwargs['assign_staff'] = assign_staff_id
+    return kwargs
+
+
 @app.route('/add-staff', methods=['POST'])
 def add_staff():
     """Add a new FOH staff member."""
@@ -2715,19 +3040,20 @@ def add_staff():
     new_category_field = request.form.get('new_category', '')
     raw_rate_type = request.form.get('rate_type')
     rate_amount_raw = request.form.get('rate_amount')
+    roster_assign_week = (request.form.get('roster_assign_week') or '').strip() or None
     
     category = resolve_staff_category_from_form(category_field, new_category_field)
     if not name or not category or not rate_amount_raw:
         flash('Please fill in all required fields', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
     
     if category_field == '__new__' and not normalize_category_name(new_category_field):
         flash('Please enter a name for the new category', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
     
     if raw_rate_type not in ['hourly', 'daily', 'monthly']:
         flash('Invalid rate type selected', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
     
     try:
         rate_type = normalize_rate_type(raw_rate_type)
@@ -2735,10 +3061,10 @@ def add_staff():
         flat_monthly = request.form.get('flat_monthly') == 'on'
         if rate_amount <= 0:
             flash('Rate amount must be greater than zero', 'error')
-            return redirect(url_for('index'))
+            return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
         if flat_monthly and rate_type != 'monthly':
             flash('Flat rate only applies to monthly staff', 'error')
-            return redirect(url_for('index'))
+            return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
 
         # Check if staff member already exists
         owner_id = get_current_owner_id()
@@ -2749,7 +3075,7 @@ def add_staff():
         existing = cleaners_query().filter_by(name=name).first()
         if existing:
             flash(f'Staff member "{name}" already exists!', 'error')
-            return redirect(url_for('index'))
+            return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
         
         # Create new staff member
         new_cleaner = Cleaner(
@@ -2768,6 +3094,11 @@ def add_staff():
             f'{format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)}.',
             'success'
         )
+        redirect_kwargs = _index_redirect_kwargs(
+            roster_assign_week=roster_assign_week,
+            assign_staff_id=new_cleaner.id if roster_assign_week else None,
+        )
+        return redirect(url_for('index', **redirect_kwargs))
         
     except (ValueError, TypeError):
         flash('Invalid rate amount provided', 'error')
@@ -2775,7 +3106,7 @@ def add_staff():
         flash('Error adding staff member', 'error')
         db.session.rollback()
     
-    return redirect(url_for('index'))
+    return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
 
 @app.route('/clear-db', methods=['POST'])
 def clear_db():

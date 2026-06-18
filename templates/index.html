@@ -4,22 +4,33 @@
 
 {% block extra_css %}
 <style>
-    .stat-card {
-        border-left: 4px solid #3498db;
+    .stat-card.stat-card-circle {
+        width: 140px;
+        height: 140px;
+        border-radius: 50%;
+        border: 2px solid #dee2e6;
+        flex-shrink: 0;
+        overflow: hidden;
         transition: transform 0.15s ease;
     }
-    .stat-card:hover {
+    .stat-card.stat-card-circle:hover {
         transform: translateY(-2px);
     }
-    .stat-card.staff { border-left-color: #3498db; }
-    .stat-card.logs { border-left-color: #2ecc71; }
-    .stat-card.hours { border-left-color: #9b59b6; }
-    .stat-card.wages { border-left-color: #e67e22; }
-    .stat-card.today { border-left-color: #1abc9c; }
-    .stat-value {
-        font-size: 1.75rem;
+    .stat-card.staff { border-color: #3498db; }
+    .stat-card.logs { border-color: #2ecc71; }
+    .stat-card.hours { border-color: #9b59b6; }
+    .stat-card.wages { border-color: #e67e22; }
+    .stat-card.today { border-color: #1abc9c; }
+    .stat-card-circle .stat-value {
+        font-size: 1.35rem;
         font-weight: 700;
-        line-height: 1.2;
+        line-height: 1.1;
+    }
+    .stat-card-circle .stat-value.stat-value-sm {
+        font-size: 1rem;
+    }
+    .stat-label {
+        font-size: 0.75rem;
     }
     .quick-action-btn {
         text-align: left;
@@ -28,6 +39,191 @@
     .quick-action-btn i {
         width: 1.25rem;
     }
+    .shift-roster-table th,
+    .shift-roster-table td {
+        vertical-align: middle;
+        text-align: center;
+        padding: 0.12rem 0.18rem;
+        line-height: 1.1;
+    }
+    .shift-roster-table th.staff-col,
+    .shift-roster-table td.staff-col {
+        text-align: left;
+        width: 135px;
+        max-width: 135px;
+        min-width: 135px;
+        overflow: visible;
+        position: relative;
+    }
+    #weekly-shift-card .table-responsive {
+        overflow-x: auto;
+        overflow-y: visible;
+    }
+    .shift-roster-table .shift-staff-autocomplete {
+        min-width: 0;
+    }
+    .shift-roster-table .shift-staff-input {
+        width: 100%;
+        font-size: 0.75rem;
+        padding: 0.1rem 0.3rem;
+        min-height: 1.55rem;
+        line-height: 1.1;
+    }
+    .shift-roster-table .shift-staff-suggestions {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 100%;
+        z-index: 20;
+        max-height: 10rem;
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.1);
+    }
+    .shift-roster-table .shift-staff-suggestion {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+    }
+    .shift-roster-table .shift-staff-suggestion:hover,
+    .shift-roster-table .shift-staff-suggestion.is-active {
+        background: #e9ecef;
+    }
+    .shift-roster-table .shift-staff-suggestion.create-new {
+        color: #0d6efd;
+        font-weight: 600;
+        border-top: 1px solid #eee;
+    }
+    .shift-roster-table .shift-remove-row {
+        min-height: 1.45rem;
+        line-height: 1;
+    }
+    .shift-roster-table .day-col {
+        width: 72px;
+        min-width: 72px;
+    }
+    .shift-roster-table .hours-col {
+        width: 56px;
+        min-width: 56px;
+        font-weight: 600;
+        font-size: 0.75rem;
+        color: #495057;
+    }
+    .shift-roster-table .pay-col {
+        width: 64px;
+        min-width: 64px;
+        font-weight: 600;
+        font-size: 0.75rem;
+        color: #198754;
+    }
+    .shift-roster-table .day-head {
+        font-size: 0.72rem;
+        padding: 0.1rem 0.15rem;
+    }
+    .shift-roster-table .day-head small {
+        display: block;
+        font-size: 0.6rem;
+        line-height: 1;
+        font-weight: 400;
+        color: #6c757d;
+    }
+    .shift-day-cell {
+        cursor: pointer;
+        position: relative;
+        padding: 0.08rem 0.75rem 0.55rem 0.12rem;
+        transition: background-color 0.15s ease;
+    }
+    .shift-day-cell:hover {
+        background-color: #f8f9fa;
+    }
+    .shift-day-cell.is-scheduled {
+        background-color: rgb(65 105 225 / 22%);
+        box-shadow: inset 0 0 0 1px rgb(65 105 225 / 50%);
+    }
+    .shift-day-cell.is-scheduled:hover {
+        background-color: rgb(65 105 225 / 32%);
+        box-shadow: inset 0 0 0 1px rgb(65 105 225 / 50%);
+    }
+    .shift-day-cell.is-off,
+    .shift-day-cell.is-leave {
+        background-color: rgb(255 243 205 / 22%);
+        box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
+    }
+    .shift-day-cell.is-off:hover,
+    .shift-day-cell.is-leave:hover {
+        background-color: rgb(255 243 205 / 32%);
+        box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
+    }
+    .shift-day-cell .shift-check {
+        color: #198754;
+        font-size: 1rem;
+    }
+    .shift-day-cell .shift-time-label {
+        display: block;
+        font-size: 0.62rem;
+        line-height: 1.05;
+        font-weight: 600;
+        color: #1e3a8a;
+        white-space: nowrap;
+    }
+    .shift-day-cell.is-scheduled .shift-time-label.text-muted {
+        color: #5a6fa8;
+    }
+    .shift-day-cell .shift-status-label {
+        display: block;
+        font-size: 0.62rem;
+        line-height: 1.05;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    .shift-day-cell .shift-status-label.off {
+        color: #6c757d;
+    }
+    .shift-day-cell .shift-status-label.leave {
+        color: #997404;
+    }
+    .shift-drag-crumb {
+        position: absolute;
+        right: 2px;
+        bottom: 2px;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #6c757d;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+        cursor: grab;
+        user-select: none;
+        opacity: 0.75;
+        z-index: 1;
+    }
+    .shift-drag-crumb:hover {
+        opacity: 1;
+        background: #0d6efd;
+        transform: scale(1.15);
+    }
+    .shift-drag-crumb:active {
+        cursor: grabbing;
+    }
+    .shift-day-cell.shift-drop-target {
+        outline: 2px dashed #0d6efd;
+        outline-offset: -2px;
+    }
+    .shift-roster-status {
+        min-height: 1.25rem;
+    }
+    .shift-roster-table tr.shift-category-header td {
+        background-color: #f8f9fa;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+        text-align: left;
+        padding: 0.18rem 0.35rem;
+    }
 </style>
 {% endblock %}
 
@@ -35,62 +231,145 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
-        <h4 class="mb-1"><i class="fas fa-tachometer-alt me-2 text-primary"></i>Admin Dashboard</h4>
-        <p class="text-muted mb-0">{{ today.strftime('%A, %d %B %Y') }} · Summary for {{ dashboard.period_label }}</p>
+        <h4 class="mb-1">Admin Dashboard</h4>
+        <p class="text-muted mb-0">{{ today.strftime('%A, %d %B %Y') }}</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
         <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStaffModal">
             <i class="fas fa-user-plus me-2"></i>Add Staff
         </button>
         <a href="{{ url_for('log_form') }}" class="btn btn-primary btn-sm">
-            <i class="fas fa-plus me-2"></i>Log Shift / Time
+            Log Shift
         </a>
     </div>
 </div>
 
 <!-- Stats -->
-<div class="row g-3 mb-4">
-    <div class="col-6 col-md-4 col-xl">
-        <div class="card stat-card staff h-100">
+ 
+<div class="row g-1 mb-4 justify-content-center">
+    <div class="col-6 col-md-6 col-xl text-center">
+        <div class="card stat-card stat-card-circle wages mx-auto d-flex align-items-center justify-content-center">
+            <div class="stat-value stat-value-sm mb-0" style="color:#e67e22">R{{ "%.2f"|format(dashboard.wage_bill_this_month) }}</div>
+        </div>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Wage Bill ({{ dashboard.period_label }})</div>
+    </div>
+    <div class="col-6 col-md-4 col-xl text-center">
+        <div class="card stat-card stat-card-circle staff mx-auto d-flex align-items-center justify-content-center">
+            <div class="stat-value text-primary mb-0">{{ dashboard.active_staff }}</div>
+        </div>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Active Staff</div>
+        {% if dashboard.archived_staff > 0 %}
+        <small class="text-muted d-block">{{ dashboard.archived_staff }} archived</small>
+        {% endif %}
+    </div>
+    <div class="col-6 col-md-4 col-xl text-center">
+        <div class="card stat-card stat-card-circle logs mx-auto d-flex align-items-center justify-content-center">
+            <div class="stat-value text-success mb-0">{{ dashboard.logs_this_month }}</div>
+        </div>
+
+
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Logs This Month</div>
+    </div>
+    <div class="col-6 col-md-4 col-xl text-center">
+        <div class="card stat-card stat-card-circle hours mx-auto d-flex align-items-center justify-content-center">
+            <div class="stat-value mb-0" style="color:#9b59b6">{{ "%.1f"|format(dashboard.hours_this_month) }}</div>
+        </div>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Hours This Month</div>
+    </div>
+    
+    <div class="col-6 col-md-6 col-xl text-center">
+        <div class="card stat-card stat-card-circle today mx-auto d-flex align-items-center justify-content-center">
+            <div class="stat-value mb-0" style="color:#1abc9c">{{ dashboard.staff_working_today }}</div>
+        </div>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Working Today</div>
+        <small class="text-muted d-block">staff with logs</small>
+    </div>
+</div>
+
+<div class="row g-4 mb-1">
+    <div class="col-12">
+        <div class="card" id="weekly-shift-card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h6 class="card-title mb-0"><i class="fas fa-calendar-week me-2"></i>Weekly Shift Roster</h6>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Week navigation">
+                        <button type="button" class="btn btn-outline-secondary" id="shift-week-prev" title="Previous week">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="shift-week-next" title="Next week">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                    <span class="text-muted small" id="shift-week-label">
+                        {{ shift_week_start.strftime('%d %b') }} – {{ shift_week_end.strftime('%d %b %Y') }}
+                    </span>
+                </div>
+            </div>
             <div class="card-body">
-                <div class="text-muted small text-uppercase fw-semibold">Active Staff</div>
-                <div class="stat-value text-primary">{{ dashboard.active_staff }}</div>
-                {% if dashboard.archived_staff > 0 %}
-                <small class="text-muted">{{ dashboard.archived_staff }} archived</small>
-                {% endif %}
+                <div class="d-flex flex-wrap gap-2 mb-3 shift-roster-toolbar">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="shift-add-row">
+                        <i class="fas fa-user-plus me-1"></i>Add Staff Row
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="shift-load-staff">
+                        <i class="fas fa-users me-1"></i>Load All Active Staff
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary ms-auto" id="shift-print">
+                        <i class="fas fa-print me-1"></i>Print Roster
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered shift-roster-table mb-2">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="staff-col">Staff</th>
+                                {% for day in shift_week_days %}
+                                <th class="day-col day-head">
+                                    {{ day.label }}
+                                    <small>{{ day.display }}</small>
+                                </th>
+                                {% endfor %}
+                                <th class="hours-col">Hours</th>
+                                <th class="pay-col">Pay</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shift-roster-body"></tbody>
+                    </table>
+                </div>
+                <div class="shift-roster-status small text-muted" id="shift-roster-status"></div>
             </div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-xl">
-        <div class="card stat-card logs h-100">
-            <div class="card-body">
-                <div class="text-muted small text-uppercase fw-semibold">Logs This Month</div>
-                <div class="stat-value text-success">{{ dashboard.logs_this_month }}</div>
+</div>
+
+<div class="modal fade" id="shiftTimeModal" tabindex="-1" aria-labelledby="shiftTimeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="shiftTimeModalLabel">Shift Times</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-4 col-xl">
-        <div class="card stat-card hours h-100">
-            <div class="card-body">
-                <div class="text-muted small text-uppercase fw-semibold">Hours This Month</div>
-                <div class="stat-value" style="color:#9b59b6">{{ "%.1f"|format(dashboard.hours_this_month) }}</div>
+            <div class="modal-body">
+                <p class="small text-muted mb-3" id="shift-time-context"></p>
+                <div class="d-flex gap-2 mb-3">
+                    <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" id="shift-set-off">Off</button>
+                    <button type="button" class="btn btn-sm btn-outline-warning flex-fill" id="shift-set-leave">On Leave</button>
+                </div>
+                <div class="small text-muted text-uppercase fw-semibold mb-2">Shift times</div>
+                <div id="shift-time-fields">
+                    <div class="mb-3">
+                        <label for="shift-start-time" class="form-label">Start time</label>
+                        <input type="time" class="form-control" id="shift-start-time">
+                    </div>
+                    <div class="mb-0">
+                        <label for="shift-end-time" class="form-label">End time</label>
+                        <input type="time" class="form-control" id="shift-end-time">
+                    </div>
+                </div>
             </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-6 col-xl">
-        <div class="card stat-card wages h-100">
-            <div class="card-body">
-                <div class="text-muted small text-uppercase fw-semibold">Wage Bill ({{ dashboard.period_label }})</div>
-                <div class="stat-value" style="color:#e67e22">R{{ "%.2f"|format(dashboard.wage_bill_this_month) }}</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-6 col-md-6 col-xl">
-        <div class="card stat-card today h-100">
-            <div class="card-body">
-                <div class="text-muted small text-uppercase fw-semibold">Working Today</div>
-                <div class="stat-value" style="color:#1abc9c">{{ dashboard.staff_working_today }}</div>
-                <small class="text-muted">staff with logs</small>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-danger me-auto" id="shift-time-clear">Clear shift</button>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm btn-primary" id="shift-time-save">Save</button>
             </div>
         </div>
     </div>
@@ -98,12 +377,12 @@
 
 <div class="row g-4">
     <!-- Quick Actions -->
-    <div class="col-lg-4">
+    <!-- <div class="col-lg-4">
         <div class="card h-100">
             <div class="card-header">
                 <h6 class="card-title mb-0"><i class="fas fa-bolt me-2"></i>Quick Actions</h6>
-            </div>
-            <div class="card-body d-grid gap-2">
+            </div> -->
+            <!-- <div class="card-body d-grid gap-2">
                 <a href="{{ url_for('log_form') }}" class="btn btn-primary quick-action-btn">
                     <i class="fas fa-plus me-2"></i>Log Shift / Time
                 </a>
@@ -121,7 +400,7 @@
                 </a>
                 <a href="{{ url_for('invoices') }}" class="btn btn-outline-primary quick-action-btn">
                     <i class="fas fa-file-invoice-dollar me-2"></i>Invoices
-                </a>
+                </a> -->
                
                 <!-- <form method="POST" action="{{ url_for('clear_db') }}"
                       onsubmit="return confirm('Clear the entire database?\n\nThis will delete ALL staff and ALL logged entries. This cannot be undone.');">
@@ -129,12 +408,12 @@
                         <i class="fas fa-trash-alt me-2"></i>Clear DB (Testing)
                     </button>
                 </form> -->
-            </div>
+            <!-- </div>
         </div>
-    </div>
+    </div> -->
 
     <!-- Category comparison -->
-    <div class="col-lg-8">
+    <div class="col-12">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h6 class="card-title mb-0"><i class="fas fa-calculator me-2"></i>Wage Bill by Category</h6>
@@ -229,17 +508,17 @@
     </div>
 </div>
 
-<div class="row g-4 mt-1">
+<!-- <div class="row g-4 mt-1"> -->
     <!-- Recent activity -->
-    <div class="col-lg-7">
+    <!-- <div class="col-lg-7">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h6 class="card-title mb-0"><i class="fas fa-history me-2"></i>Recent Activity</h6>
                 <a href="{{ url_for('manage_logs') }}" class="btn btn-sm btn-outline-secondary">View All</a>
-            </div>
-            <div class="card-body p-0">
+            </div> -->
+            <!-- <div class="card-body p-0"> -->
                 {% if dashboard.recent_logs %}
-                <div class="table-responsive">
+                <!-- <div class="table-responsive">
                     <table class="table table-hover mb-0 align-middle">
                         <thead class="table-light">
                             <tr>
@@ -275,7 +554,7 @@
                             {% endfor %}
                         </tbody>
                     </table>
-                </div>
+                </div> -->
                 {% else %}
                 <p class="text-muted text-center py-4 mb-0">No logs recorded yet.</p>
                 {% endif %}
@@ -359,6 +638,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" action="{{ url_for('add_staff') }}">
+                <input type="hidden" name="roster_assign_week" id="roster_assign_week" value="">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label for="staff_name" class="form-label">Staff Name</label>
@@ -408,19 +688,30 @@
 {% endblock %}
 
 {% block extra_js %}
+<script id="shift-roster-bootstrap-data" type="application/json">{{ shift_roster_bootstrap_data|tojson }}</script>
+<script>
+const shiftRosterBootstrap = JSON.parse(
+    document.getElementById('shift-roster-bootstrap-data').textContent
+);
+const SHIFT_ACTIVE_STAFF = shiftRosterBootstrap.activeStaff || [];
+const SHIFT_CATEGORY_ORDER = shiftRosterBootstrap.categoryOrder || [];
+const SHIFT_INITIAL_ROWS = shiftRosterBootstrap.initialRows || [];
+const SHIFT_WEEK_START = shiftRosterBootstrap.weekStart || '';
+const SHIFT_INITIAL_WEEK_DAYS = shiftRosterBootstrap.initialWeekDays || [];
+const SHIFT_DEFAULT_ROW_COUNT = shiftRosterBootstrap.defaultRowCount || 10;
+const SHIFT_ASSIGN_STAFF_ID = shiftRosterBootstrap.assignStaffId || null;
+const SHIFT_SA_PUBLIC_HOLIDAYS = new Set(shiftRosterBootstrap.publicHolidays || []);
+const SHIFT_SUNDAY_MULTIPLIER = shiftRosterBootstrap.sundayMultiplier || 1.5;
+const SHIFT_PH_MULTIPLIER = shiftRosterBootstrap.publicHolidayMultiplier || 2;
+</script>
 {% if wage_comparison.has_data %}
+<script id="wage-compare-chart-data" type="application/json">{{ wage_comparison_chart_data|tojson }}</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const compareRows = [
-        {% for row in wage_comparison.rows if not row.get('is_grand_total') %}
-        {
-            label: {{ row.label|tojson }},
-            amountA: {{ row.amount_a }},
-            amountB: {{ row.amount_b }}
-        }{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ].filter(function(row) { return row.amountA > 0 || row.amountB > 0; });
+    const chartDataEl = document.getElementById('wage-compare-chart-data');
+    const chartData = chartDataEl ? JSON.parse(chartDataEl.textContent) : null;
+    const compareRows = chartData ? chartData.rows : [];
 
     if (compareRows.length) {
         new Chart(document.getElementById('wageCompareChart'), {
@@ -429,13 +720,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 labels: compareRows.map(function(row) { return row.label; }),
                 datasets: [
                     {
-                        label: {{ wage_comparison.label_a|tojson }},
+                        label: chartData.labelA,
                         data: compareRows.map(function(row) { return row.amountA; }),
                         backgroundColor: '#3498db',
                         borderRadius: 4
                     },
                     {
-                        label: {{ wage_comparison.label_b|tojson }},
+                        label: chartData.labelB,
                         data: compareRows.map(function(row) { return row.amountB; }),
                         backgroundColor: '#2ecc71',
                         borderRadius: 4
@@ -467,14 +758,1305 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     initStaffModalControls();
+    initWeeklyShiftRoster();
 });
 </script>
 {% else %}
 <script>
-document.addEventListener('DOMContentLoaded', initStaffModalControls);
+document.addEventListener('DOMContentLoaded', function() {
+    initStaffModalControls();
+    initWeeklyShiftRoster();
+});
 </script>
 {% endif %}
 <script>
+function initWeeklyShiftRoster() {
+    const rosterBody = document.getElementById('shift-roster-body');
+    const weekLabel = document.getElementById('shift-week-label');
+    const statusEl = document.getElementById('shift-roster-status');
+    const printBtn = document.getElementById('shift-print');
+    const addRowBtn = document.getElementById('shift-add-row');
+    const loadStaffBtn = document.getElementById('shift-load-staff');
+    const prevWeekBtn = document.getElementById('shift-week-prev');
+    const nextWeekBtn = document.getElementById('shift-week-next');
+    const shiftTimeModalEl = document.getElementById('shiftTimeModal');
+    const shiftTimeContext = document.getElementById('shift-time-context');
+    const shiftStartInput = document.getElementById('shift-start-time');
+    const shiftEndInput = document.getElementById('shift-end-time');
+    const shiftTimeSaveBtn = document.getElementById('shift-time-save');
+    const shiftTimeClearBtn = document.getElementById('shift-time-clear');
+    const shiftSetOffBtn = document.getElementById('shift-set-off');
+    const shiftSetLeaveBtn = document.getElementById('shift-set-leave');
+    if (!rosterBody) return;
+
+    const shiftTimeModal = shiftTimeModalEl ? new bootstrap.Modal(shiftTimeModalEl) : null;
+    let currentWeekStart = SHIFT_WEEK_START;
+    let rosterRows = ensureMinimumRows(
+        Array.isArray(SHIFT_INITIAL_ROWS) ? SHIFT_INITIAL_ROWS.map(normalizeRow) : [],
+        SHIFT_DEFAULT_ROW_COUNT
+    );
+    let weekDays = normalizeWeekDays(
+        Array.isArray(SHIFT_INITIAL_WEEK_DAYS) && SHIFT_INITIAL_WEEK_DAYS.length
+            ? SHIFT_INITIAL_WEEK_DAYS
+            : buildWeekDays(currentWeekStart)
+    );
+    let saveTimer = null;
+    let saveInFlight = null;
+    let activeShiftEdit = null;
+    let shiftDragSource = null;
+
+    function clearShiftDropTargets() {
+        rosterBody.querySelectorAll('.shift-drop-target').forEach(function(cell) {
+            cell.classList.remove('shift-drop-target');
+        });
+    }
+
+    function shiftTargetKey(rowIndex, dayIndex) {
+        return rowIndex + ':' + dayIndex;
+    }
+
+    function addShiftDropTarget(cell) {
+        if (!shiftDragSource || !cell) return;
+        const targetRow = parseInt(cell.dataset.rowIndex, 10);
+        const targetDay = parseInt(cell.dataset.dayIndex, 10);
+        if (targetRow !== shiftDragSource.rowIndex) return;
+        if (targetDay === shiftDragSource.dayIndex) return;
+        const key = shiftTargetKey(targetRow, targetDay);
+        if (!shiftDragSource.targets.has(key)) {
+            shiftDragSource.targets.set(key, { rowIndex: targetRow, dayIndex: targetDay });
+            cell.classList.add('shift-drop-target');
+        }
+    }
+
+    function duplicateShiftToTargets(sourceRow, sourceDay, targets) {
+        syncRowsFromDom();
+        const sourceSlot = normalizeDay(rosterRows[sourceRow] && rosterRows[sourceRow].days[sourceDay]);
+        if (!sourceSlot || !targets.length) return;
+
+        let copied = false;
+        targets.forEach(function(target) {
+            if (!rosterRows[target.rowIndex]) return;
+            rosterRows[target.rowIndex].days[target.dayIndex] = cloneDaySlot(sourceSlot);
+            copied = true;
+        });
+        if (!copied) return;
+        renderRows();
+        scheduleAutoSave();
+    }
+
+    function finishShiftDragCopy() {
+        if (!shiftDragSource || shiftDragSource.applied) return;
+        shiftDragSource.applied = true;
+        const targets = Array.from(shiftDragSource.targets.values());
+        const sourceRow = shiftDragSource.rowIndex;
+        const sourceDay = shiftDragSource.dayIndex;
+        shiftDragSource = null;
+        clearShiftDropTargets();
+        if (targets.length) {
+            duplicateShiftToTargets(sourceRow, sourceDay, targets);
+        }
+    }
+
+    function emptyDay() {
+        return null;
+    }
+
+    function createEmptyRow() {
+        return {
+            name: '',
+            cleaner_id: null,
+            days: [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()],
+        };
+    }
+
+    function ensureMinimumRows(rows, minimum) {
+        const padded = rows.map(normalizeRow);
+        while (padded.length < minimum) {
+            padded.push(createEmptyRow());
+        }
+        return padded;
+    }
+
+    function shiftDay(start, end) {
+        return {
+            status: 'shift',
+            start: start || null,
+            end: end || null,
+        };
+    }
+
+    function offDay() {
+        return { status: 'off', start: null, end: null };
+    }
+
+    function leaveDay() {
+        return { status: 'leave', start: null, end: null };
+    }
+
+    function normalizeDay(day) {
+        if (day === null || day === false || day === undefined) {
+            return emptyDay();
+        }
+        if (day === true) {
+            return shiftDay(null, null);
+        }
+        if (!day || typeof day !== 'object') {
+            return emptyDay();
+        }
+
+        const status = day.status || (day.scheduled ? 'shift' : null);
+        if (status === 'off') return offDay();
+        if (status === 'leave') return leaveDay();
+        if (status === 'shift') return shiftDay(day.start || null, day.end || null);
+        return emptyDay();
+    }
+
+    function normalizeRow(row) {
+        const days = Array.isArray(row.days) ? row.days.slice(0, 7) : [];
+        while (days.length < 7) days.push(emptyDay());
+        return {
+            name: row.name || '',
+            cleaner_id: row.cleaner_id ?? null,
+            days: days.map(normalizeDay),
+        };
+    }
+
+    function dayCellClass(day) {
+        const slot = normalizeDay(day);
+        let className = 'shift-day-cell day-col';
+        if (!slot) return className;
+        if (slot.status === 'shift') className += ' is-scheduled';
+        if (slot.status === 'off') className += ' is-off';
+        if (slot.status === 'leave') className += ' is-leave';
+        return className;
+    }
+
+    function formatTimeLabel(value) {
+        if (!value) return '';
+        const parts = String(value).split(':');
+        if (parts.length < 2) return value;
+        return parts[0] + ':' + parts[1];
+    }
+
+    function shiftDragCrumbHtml() {
+        return '<span class="shift-drag-crumb" draggable="true" title="Drag across days to copy shift"></span>';
+    }
+
+    function cloneDaySlot(day) {
+        const slot = normalizeDay(day);
+        if (!slot) return emptyDay();
+        if (slot.status === 'off') return offDay();
+        if (slot.status === 'leave') return leaveDay();
+        return shiftDay(slot.start, slot.end);
+    }
+
+    function formatDayCellHtml(day) {
+        const slot = normalizeDay(day);
+        if (!slot) return '';
+        const crumb = shiftDragCrumbHtml();
+        if (slot.status === 'off') {
+            return crumb + '<span class="shift-status-label off">Off</span>';
+        }
+        if (slot.status === 'leave') {
+            return crumb + '<span class="shift-status-label leave">Leave</span>';
+        }
+        if (slot.start && slot.end) {
+            return crumb + '<span class="shift-time-label">' +
+                escapeHtml(formatTimeLabel(slot.start)) + '–' +
+                escapeHtml(formatTimeLabel(slot.end)) +
+            '</span>';
+        }
+        return crumb + '<span class="shift-time-label text-muted">Set times</span>';
+    }
+
+    function parseTimeToMinutes(value) {
+        const parts = String(value).split(':');
+        if (parts.length < 2) return null;
+        const hours = parseInt(parts[0], 10);
+        const minutes = parseInt(parts[1], 10);
+        if (isNaN(hours) || isNaN(minutes)) return null;
+        return (hours * 60) + minutes;
+    }
+
+    function calculateShiftHours(start, end) {
+        const startMinutes = parseTimeToMinutes(start);
+        const endMinutes = parseTimeToMinutes(end);
+        if (startMinutes === null || endMinutes === null) return 0;
+        let diff = endMinutes - startMinutes;
+        if (diff <= 0) diff += 24 * 60;
+        return Math.round((diff / 60) * 100) / 100;
+    }
+
+    function calculateRowWeekHours(row) {
+        let total = 0;
+        row.days.forEach(function(day) {
+            const slot = normalizeDay(day);
+            if (!slot || slot.status !== 'shift' || !slot.start || !slot.end) return;
+            total += calculateShiftHours(slot.start, slot.end);
+        });
+        return Math.round(total * 10) / 10;
+    }
+
+    function formatWeekHours(total) {
+        return total.toFixed(1);
+    }
+
+    function rosterColumnCount() {
+        return weekDays.length + 3;
+    }
+
+    function getHourlyPayMultiplierForIso(iso) {
+        if (SHIFT_SA_PUBLIC_HOLIDAYS.has(iso)) return SHIFT_PH_MULTIPLIER;
+        if (parseLocalDate(iso).getDay() === 0) return SHIFT_SUNDAY_MULTIPLIER;
+        return 1.0;
+    }
+
+    function getDayPayMultiplier(dayIndex) {
+        const dayMeta = weekDays[dayIndex];
+        if (!dayMeta) return 1.0;
+        if (dayMeta.multiplier != null) return dayMeta.multiplier;
+        if (dayMeta.iso) return getHourlyPayMultiplierForIso(dayMeta.iso);
+        return 1.0;
+    }
+
+    function normalizeRateType(rateType) {
+        return rateType === 'hourly' || rateType === 'daily' ? rateType : 'monthly';
+    }
+
+    function calculateRowWeekPay(row) {
+        const staff = getStaffForRow(row);
+        if (!staff || staff.rate_amount == null) return null;
+
+        const rateType = normalizeRateType(staff.rate_type);
+        const rateAmount = Number(staff.rate_amount);
+        if (!rateAmount) return null;
+
+        if (rateType === 'monthly') return null;
+
+        let totalPay = 0;
+        row.days.forEach(function(day, dayIndex) {
+            const slot = normalizeDay(day);
+            if (!slot || slot.status !== 'shift') return;
+
+            if (rateType === 'daily') {
+                totalPay += rateAmount;
+                return;
+            }
+
+            if (!slot.start || !slot.end) return;
+            const hours = calculateShiftHours(slot.start, slot.end);
+            totalPay += hours * rateAmount * getDayPayMultiplier(dayIndex);
+        });
+
+        return Math.round(totalPay * 100) / 100;
+    }
+
+    function formatWeekPay(total) {
+        if (total === null) return '—';
+        return 'R' + total.toFixed(2);
+    }
+
+    function parseLocalDate(iso) {
+        const parts = String(iso).split('-');
+        return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    }
+
+    function formatLocalIso(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return year + '-' + month + '-' + day;
+    }
+
+    function formatDayDisplay(iso) {
+        return parseLocalDate(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    }
+
+    function normalizeWeekDays(days) {
+        return days.map(function(day, index) {
+            const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const iso = day.iso || '';
+            return {
+                label: day.label || labels[index] || '',
+                iso: iso,
+                display: day.display || formatDayDisplay(iso),
+                multiplier: day.multiplier != null
+                    ? day.multiplier
+                    : (iso ? getHourlyPayMultiplierForIso(iso) : 1.0),
+            };
+        });
+    }
+
+    function buildWeekDays(weekStartIso) {
+        const start = parseLocalDate(weekStartIso);
+        const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        return labels.map(function(label, index) {
+            const dayDate = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+            const iso = formatLocalIso(dayDate);
+            return {
+                label: label,
+                iso: iso,
+                display: formatDayDisplay(iso),
+                multiplier: getHourlyPayMultiplierForIso(iso),
+            };
+        });
+    }
+
+    function formatWeekRange(weekStartIso) {
+        const days = weekDays.length ? weekDays : buildWeekDays(weekStartIso);
+        const end = days[6];
+        const startParts = days[0].display.split(' ');
+        const endParts = end.display.split(' ');
+        const endYear = parseLocalDate(end.iso).getFullYear();
+        return startParts[0] + ' ' + startParts[1] + ' – ' + endParts[0] + ' ' + endParts[1] + ' ' + endYear;
+    }
+
+    function setStatus(message, tone) {
+        statusEl.textContent = message || '';
+        statusEl.className = 'shift-roster-status small ' + (tone === 'success' ? 'text-success' : tone === 'error' ? 'text-danger' : 'text-muted');
+    }
+
+    function getStaffForRow(row) {
+        const cleanerId = resolveCleanerId(row);
+        if (!cleanerId) return null;
+        return SHIFT_ACTIVE_STAFF.find(function(staff) {
+            return staff.id === cleanerId;
+        }) || null;
+    }
+
+    function getRowGroup(row) {
+        const staff = getStaffForRow(row);
+        return staff ? staff.group : null;
+    }
+
+    function isAssignedRow(row) {
+        return Boolean(row.cleaner_id || row.name);
+    }
+
+    function categoryOrderIndex(groupName) {
+        const index = SHIFT_CATEGORY_ORDER.indexOf(groupName);
+        return index === -1 ? SHIFT_CATEGORY_ORDER.length : index;
+    }
+
+    function shouldGroupRosterRows(rows) {
+        const groups = new Set();
+        rows.forEach(function(row) {
+            if (!isAssignedRow(row)) return;
+            const group = getRowGroup(row);
+            if (group) groups.add(group);
+        });
+        return groups.size > 1;
+    }
+
+    function compareRowsForDisplay(a, b, groupActive) {
+        if (groupActive) {
+            const groupA = getRowGroup(a) || 'Uncategorized';
+            const groupB = getRowGroup(b) || 'Uncategorized';
+            const groupCompare = categoryOrderIndex(groupA) - categoryOrderIndex(groupB);
+            if (groupCompare !== 0) return groupCompare;
+        }
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+    }
+
+    function sortRowsForDisplay(rows) {
+        const assigned = [];
+        const empty = [];
+        rows.forEach(function(row) {
+            if (isAssignedRow(row)) {
+                assigned.push(row);
+            } else {
+                empty.push(row);
+            }
+        });
+
+        const groupActive = shouldGroupRosterRows(rows);
+        assigned.sort(function(a, b) {
+            return compareRowsForDisplay(a, b, groupActive);
+        });
+        return assigned.concat(empty);
+    }
+
+    function appendCategoryHeader(groupName) {
+        const tr = document.createElement('tr');
+        tr.className = 'shift-category-header';
+        const td = document.createElement('td');
+        td.colSpan = rosterColumnCount();
+        td.textContent = groupName;
+        tr.appendChild(td);
+        rosterBody.appendChild(tr);
+    }
+
+    function appendStaffRow(row, rowIndex) {
+        const tr = document.createElement('tr');
+
+        const staffTd = document.createElement('td');
+        staffTd.className = 'staff-col';
+        staffTd.innerHTML =
+            '<div class="d-flex align-items-center gap-1">' +
+                buildStaffFieldHtml(row) +
+                '<button type="button" class="btn btn-sm btn-outline-danger shift-remove-row py-0 px-1" title="Remove row">' +
+                    '<i class="fas fa-times"></i>' +
+                '</button>' +
+            '</div>';
+        tr.appendChild(staffTd);
+
+        row.days.forEach(function(day, dayIndex) {
+            const dayTd = document.createElement('td');
+            dayTd.className = dayCellClass(day);
+            dayTd.dataset.rowIndex = String(rowIndex);
+            dayTd.dataset.dayIndex = String(dayIndex);
+            dayTd.innerHTML = formatDayCellHtml(day);
+            tr.appendChild(dayTd);
+        });
+
+        const hoursTd = document.createElement('td');
+        hoursTd.className = 'hours-col';
+        hoursTd.textContent = formatWeekHours(calculateRowWeekHours(row));
+        tr.appendChild(hoursTd);
+
+        const payTd = document.createElement('td');
+        payTd.className = 'pay-col';
+        payTd.textContent = formatWeekPay(calculateRowWeekPay(row));
+        tr.appendChild(payTd);
+
+        rosterBody.appendChild(tr);
+    }
+
+    function resolveCleanerId(row) {
+        if (row.cleaner_id) return row.cleaner_id;
+        const match = SHIFT_ACTIVE_STAFF.find(function(staff) {
+            return staff.name === row.name;
+        });
+        return match ? match.id : null;
+    }
+
+    function staffInputCleanerId(row) {
+        if (row.cleaner_id) return row.cleaner_id;
+        return resolveCleanerId(row);
+    }
+
+    function staffInputValue(row) {
+        if (row.name) return row.name;
+        const cleanerId = staffInputCleanerId(row);
+        if (!cleanerId) return '';
+        const staff = SHIFT_ACTIVE_STAFF.find(function(item) {
+            return item.id === cleanerId;
+        });
+        return staff ? staff.name : '';
+    }
+
+    function buildStaffFieldHtml(row) {
+        const cleanerId = staffInputCleanerId(row);
+        const value = staffInputValue(row);
+        const dataId = cleanerId ? ' data-cleaner-id="' + cleanerId + '"' : '';
+        return '<div class="shift-staff-autocomplete position-relative flex-grow-1">' +
+            '<input type="text" class="form-control form-control-sm shift-staff-input" ' +
+            'value="' + escapeHtml(value) + '" placeholder="Type staff name…" autocomplete="off" spellcheck="false"' +
+            dataId + '>' +
+            '<ul class="shift-staff-suggestions list-unstyled mb-0 d-none"></ul>' +
+        '</div>';
+    }
+
+    function resolveStaffByName(name) {
+        const normalized = String(name || '').trim().toLowerCase();
+        if (!normalized) return null;
+        return SHIFT_ACTIVE_STAFF.find(function(staff) {
+            return staff.name.toLowerCase() === normalized;
+        }) || null;
+    }
+
+    function filterStaffSuggestions(query) {
+        const normalized = String(query || '').trim().toLowerCase();
+        if (!normalized) {
+            return SHIFT_ACTIVE_STAFF.slice(0, 12);
+        }
+        return SHIFT_ACTIVE_STAFF.filter(function(staff) {
+            return staff.name.toLowerCase().includes(normalized);
+        }).slice(0, 12);
+    }
+
+    function hideStaffSuggestions(input) {
+        const wrap = input.closest('.shift-staff-autocomplete');
+        if (!wrap) return;
+        const list = wrap.querySelector('.shift-staff-suggestions');
+        list.classList.add('d-none');
+        list.innerHTML = '';
+    }
+
+    function hideAllStaffSuggestions() {
+        rosterBody.querySelectorAll('.shift-staff-suggestions').forEach(function(list) {
+            list.classList.add('d-none');
+            list.innerHTML = '';
+        });
+    }
+
+    function setActiveStaffSuggestion(list, index) {
+        const items = Array.from(list.querySelectorAll('.shift-staff-suggestion:not(.create-new)'));
+        items.forEach(function(item, itemIndex) {
+            item.classList.toggle('is-active', itemIndex === index);
+        });
+        return items[index] || null;
+    }
+
+    function showStaffSuggestions(input) {
+        const wrap = input.closest('.shift-staff-autocomplete');
+        if (!wrap) return;
+        const list = wrap.querySelector('.shift-staff-suggestions');
+        const matches = filterStaffSuggestions(input.value);
+        let html = '';
+        matches.forEach(function(staff) {
+            html += '<li class="shift-staff-suggestion" data-staff-id="' + staff.id + '">' +
+                escapeHtml(staff.name) + '</li>';
+        });
+        if (!matches.length && input.value.trim()) {
+            html += '<li class="shift-staff-suggestion text-muted">No matches</li>';
+        }
+        html += '<li class="shift-staff-suggestion create-new" data-action="new-staff">' +
+            '+ Create new staff member…</li>';
+        list.innerHTML = html;
+        list.classList.remove('d-none');
+        wrap.dataset.activeSuggestion = '-1';
+    }
+
+    function selectStaffForInput(input, staff) {
+        input.value = staff.name;
+        input.dataset.cleanerId = String(staff.id);
+        hideStaffSuggestions(input);
+    }
+
+    function commitStaffInput(input) {
+        const match = resolveStaffByName(input.value.trim());
+        if (match) {
+            input.value = match.name;
+            input.dataset.cleanerId = String(match.id);
+        } else {
+            delete input.dataset.cleanerId;
+        }
+        hideStaffSuggestions(input);
+        rosterRows = collectRows();
+        renderRows();
+        scheduleAutoSave();
+    }
+
+    function getStaffRowIndexFromInput(input) {
+        const staffRows = Array.from(rosterBody.querySelectorAll('tr:not(.shift-category-header)'));
+        const tr = input.closest('tr');
+        return staffRows.indexOf(tr);
+    }
+
+    function openAddStaffModalFromRoster(input) {
+        rosterRows = collectRows();
+        const rowIndex = getStaffRowIndexFromInput(input);
+
+        sessionStorage.setItem('shiftRosterPendingAssign', JSON.stringify({
+            rowIndex: rowIndex,
+            week: currentWeekStart,
+            rows: rosterRows,
+        }));
+
+        const weekField = document.getElementById('roster_assign_week');
+        if (weekField) weekField.value = currentWeekStart;
+
+        const modalEl = document.getElementById('addStaffModal');
+        if (!modalEl) return;
+        const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+        const nameInput = document.getElementById('staff_name');
+        if (nameInput) {
+            const typedName = input.value.trim();
+            if (typedName && !resolveStaffByName(typedName)) {
+                nameInput.value = typedName;
+            }
+            modalEl.addEventListener('shown.bs.modal', function focusStaffName() {
+                nameInput.focus();
+                nameInput.select();
+                modalEl.removeEventListener('shown.bs.modal', focusStaffName);
+            });
+        }
+    }
+
+    function applyPendingStaffAssignment() {
+        if (!SHIFT_ASSIGN_STAFF_ID) return false;
+
+        const pendingRaw = sessionStorage.getItem('shiftRosterPendingAssign');
+        if (!pendingRaw) return false;
+
+        let pending;
+        try {
+            pending = JSON.parse(pendingRaw);
+        } catch (error) {
+            sessionStorage.removeItem('shiftRosterPendingAssign');
+            return false;
+        }
+
+        const staffId = parseInt(SHIFT_ASSIGN_STAFF_ID, 10);
+        const staff = SHIFT_ACTIVE_STAFF.find(function(item) {
+            return item.id === staffId;
+        });
+        if (!staff) return false;
+
+        if (pending.week && pending.week !== currentWeekStart) {
+            sessionStorage.removeItem('shiftRosterPendingAssign');
+            return false;
+        }
+
+        if (Array.isArray(pending.rows)) {
+            rosterRows = pending.rows.map(normalizeRow);
+        }
+        rosterRows = ensureMinimumRows(rosterRows, SHIFT_DEFAULT_ROW_COUNT);
+
+        const rowIndex = parseInt(pending.rowIndex, 10);
+        const emptyDays = [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()];
+        if (!isNaN(rowIndex) && rowIndex >= 0 && rowIndex < rosterRows.length) {
+            rosterRows[rowIndex] = {
+                name: staff.name,
+                cleaner_id: staff.id,
+                days: (rosterRows[rowIndex].days || emptyDays).map(normalizeDay),
+            };
+        } else {
+            const emptyIndex = rosterRows.findIndex(function(row) {
+                return !isAssignedRow(row);
+            });
+            const targetIndex = emptyIndex >= 0 ? emptyIndex : rosterRows.length;
+            rosterRows[targetIndex] = {
+                name: staff.name,
+                cleaner_id: staff.id,
+                days: emptyDays,
+            };
+        }
+
+        sessionStorage.removeItem('shiftRosterPendingAssign');
+
+        const url = new URL(window.location.href);
+        url.searchParams.delete('assign_staff');
+        window.history.replaceState({}, '', url);
+
+        return true;
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function renderHeader() {
+        const headerRow = document.querySelector('#weekly-shift-card thead tr');
+        if (!headerRow) return;
+        let html = '<th class="staff-col">Staff</th>';
+        weekDays.forEach(function(day) {
+            html += '<th class="day-col day-head">' + day.label + '<small>' + day.display + '</small></th>';
+        });
+        html += '<th class="hours-col">Hours</th>';
+        html += '<th class="pay-col">Pay</th>';
+        headerRow.innerHTML = html;
+        weekLabel.textContent = formatWeekRange(currentWeekStart);
+    }
+
+    function renderRows() {
+        rosterRows = ensureMinimumRows(rosterRows, SHIFT_DEFAULT_ROW_COUNT);
+        rosterRows = sortRowsForDisplay(rosterRows);
+        const groupActive = shouldGroupRosterRows(rosterRows);
+        rosterBody.innerHTML = '';
+        let lastGroup = null;
+
+        rosterRows.forEach(function(row, rowIndex) {
+            const group = getRowGroup(row);
+            if (groupActive && isAssignedRow(row) && group && group !== lastGroup) {
+                appendCategoryHeader(group);
+                lastGroup = group;
+            }
+            appendStaffRow(row, rowIndex);
+        });
+    }
+
+    function render() {
+        renderHeader();
+        renderRows();
+    }
+
+    function collectRows() {
+        const rows = [];
+        let rowIndex = 0;
+        rosterBody.querySelectorAll('tr').forEach(function(tr) {
+            if (tr.classList.contains('shift-category-header')) return;
+
+            const input = tr.querySelector('.shift-staff-input');
+            if (!input) return;
+
+            let cleanerId = input.dataset.cleanerId ? parseInt(input.dataset.cleanerId, 10) : null;
+            const typedName = input.value.trim();
+            let staff = cleanerId
+                ? SHIFT_ACTIVE_STAFF.find(function(item) { return item.id === cleanerId; })
+                : null;
+            if (!staff && typedName) {
+                staff = resolveStaffByName(typedName);
+                if (staff) cleanerId = staff.id;
+            }
+            const existingDays = (rosterRows[rowIndex] && rosterRows[rowIndex].days) || [];
+            const days = [];
+            for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
+                days.push(normalizeDay(existingDays[dayIndex]));
+            }
+            rows.push({
+                name: staff ? staff.name : typedName,
+                cleaner_id: staff ? staff.id : null,
+                days: days,
+            });
+            rowIndex += 1;
+        });
+        return rows;
+    }
+
+    function syncRowsFromDom() {
+        rosterRows = collectRows();
+    }
+
+    function openShiftTimeModal(rowIndex, dayIndex) {
+        if (!shiftTimeModal) return;
+        syncRowsFromDom();
+
+        const row = rosterRows[rowIndex];
+        if (!row) return;
+
+        const dayMeta = weekDays[dayIndex];
+        const slot = normalizeDay(row.days[dayIndex]);
+        activeShiftEdit = { rowIndex: rowIndex, dayIndex: dayIndex };
+
+        shiftTimeContext.textContent = (row.name || 'Staff') + ' · ' + dayMeta.label + ' ' + dayMeta.display;
+        if (slot && slot.status === 'shift') {
+            shiftStartInput.value = slot.start ? formatTimeLabel(slot.start) : '';
+            shiftEndInput.value = slot.end ? formatTimeLabel(slot.end) : '';
+        } else {
+            shiftStartInput.value = '';
+            shiftEndInput.value = '';
+        }
+        shiftTimeModal.show();
+        if (slot && slot.status === 'off') {
+            if (shiftSetOffBtn) shiftSetOffBtn.focus();
+        } else if (slot && slot.status === 'leave') {
+            if (shiftSetLeaveBtn) shiftSetLeaveBtn.focus();
+        } else {
+            shiftStartInput.focus();
+        }
+    }
+
+    function closeShiftTimeModal() {
+        if (shiftTimeModal) shiftTimeModal.hide();
+        setStatus('', 'muted');
+    }
+
+    function applyShiftEdit(slot) {
+        if (!activeShiftEdit) return;
+        syncRowsFromDom();
+
+        const row = rosterRows[activeShiftEdit.rowIndex];
+        if (!row) return;
+
+        row.days[activeShiftEdit.dayIndex] = normalizeDay(slot);
+        rosterRows[activeShiftEdit.rowIndex] = row;
+        renderRows();
+        scheduleAutoSave();
+    }
+
+    function saveRoster(options) {
+        const opts = options || {};
+        rosterRows = collectRows();
+        if (!opts.silent) {
+            setStatus('Saving…', 'muted');
+        }
+
+        const request = fetch('/api/weekly-shift-roster', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                week_start: currentWeekStart,
+                rows: rosterRows,
+            }),
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok) throw new Error(data.error || 'Could not save roster');
+                return data;
+            });
+        })
+        .then(function(data) {
+            rosterRows = ensureMinimumRows((data.rows || []).map(normalizeRow), SHIFT_DEFAULT_ROW_COUNT);
+            renderRows();
+            if (opts.silent) {
+                setStatus('Saved', 'success');
+                setTimeout(function() { setStatus('', 'muted'); }, 1200);
+            } else {
+                setStatus('Roster saved.', 'success');
+                setTimeout(function() { setStatus('', 'muted'); }, 2000);
+            }
+        })
+        .catch(function(error) {
+            setStatus(error.message || 'Could not save roster.', 'error');
+        });
+
+        saveInFlight = request.finally(function() {
+            saveInFlight = null;
+        });
+        return saveInFlight;
+    }
+
+    function scheduleAutoSave() {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(function() {
+            saveRoster({ silent: true });
+        }, 500);
+    }
+
+    function formatDayCellText(day) {
+        const slot = normalizeDay(day);
+        if (!slot) return '';
+        if (slot.status === 'off') return 'Off';
+        if (slot.status === 'leave') return 'Leave';
+        if (slot.start && slot.end) {
+            return formatTimeLabel(slot.start) + '–' + formatTimeLabel(slot.end);
+        }
+        return '';
+    }
+
+    function dayPrintStyle(day) {
+        const slot = normalizeDay(day);
+        if (!slot) return '';
+        if (slot.status === 'off') return 'background:#eee;color:#000;';
+        if (slot.status === 'leave') return 'background:#f5f5f5;color:#000;';
+        return 'color:#000;';
+    }
+
+    function rowHasPrintableContent(row) {
+        if (isAssignedRow(row)) return true;
+        return row.days.some(function(day) {
+            return normalizeDay(day);
+        });
+    }
+
+    function getPrintableRows() {
+        return sortRowsForDisplay(
+            collectRows().filter(rowHasPrintableContent)
+        );
+    }
+
+    function buildRosterPrintHtml() {
+        const printableRows = getPrintableRows();
+        const groupActive = shouldGroupRosterRows(printableRows);
+        const weekRange = formatWeekRange(currentWeekStart);
+        let bodyRows = '';
+        let lastGroup = null;
+
+        printableRows.forEach(function(row) {
+            const group = getRowGroup(row);
+            if (groupActive && isAssignedRow(row) && group && group !== lastGroup) {
+                bodyRows +=
+                    '<tr class="category-row"><td colspan="' + rosterColumnCount() + '">' + escapeHtml(group) + '</td></tr>';
+                lastGroup = group;
+            }
+
+            let rowHtml = '<tr><td class="staff">' + escapeHtml(row.name || '—') + '</td>';
+            row.days.forEach(function(day) {
+                rowHtml += '<td style="' + dayPrintStyle(day) + '">' +
+                    escapeHtml(formatDayCellText(day)) + '</td>';
+            });
+            rowHtml += '<td class="hours">' + formatWeekHours(calculateRowWeekHours(row)) + '</td>';
+            rowHtml += '<td class="pay">' + formatWeekPay(calculateRowWeekPay(row)) + '</td></tr>';
+            bodyRows += rowHtml;
+        });
+
+        let headHtml = '<th class="staff">Staff</th>';
+        weekDays.forEach(function(day) {
+            headHtml += '<th><span class="day-label">' + escapeHtml(day.label) + '</span>' +
+                '<span class="day-date">' + escapeHtml(day.display) + '</span></th>';
+        });
+        headHtml += '<th class="hours">Hours</th>';
+        headHtml += '<th class="pay">Pay</th>';
+
+        return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Weekly Shift Roster</title>' +
+            '<style>' +
+            '@page { size: landscape; margin: 0; }' +
+            '* { box-sizing: border-box; }' +
+            'html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; }' +
+            '.print-sheet { border: 10px solid #000; margin: 0; padding: 6px; min-height: 100vh; background: #fff; }' +
+            '.print-title { margin: 0 0 2px; font-size: 11pt; font-weight: 700; }' +
+            '.print-week { margin: 0 0 6px; font-size: 8pt; color: #444; }' +
+            'table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; line-height: 1.05; }' +
+            'th, td { border: 1px solid #999; padding: 1px 2px; text-align: center; vertical-align: middle; }' +
+            'th.staff, td.staff { text-align: left; width: 12%; }' +
+            'th.hours, td.hours, th.pay, td.pay { width: 6%; font-weight: 700; }' +
+            'th .day-label { display: block; font-weight: 700; font-size: 7pt; }' +
+            'th .day-date { display: block; font-size: 6pt; font-weight: 400; color: #555; }' +
+            'tr.category-row td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
+            'td.staff { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+            '</style></head><body>' +
+            '<div class="print-sheet">' +
+            '<h1 class="print-title">Weekly Shift Roster</h1>' +
+            '<p class="print-week">' + escapeHtml(weekRange) + '</p>' +
+            '<table><thead><tr>' + headHtml + '</tr></thead><tbody>' +
+            (bodyRows || '<tr><td colspan="' + rosterColumnCount() + '">No shifts scheduled</td></tr>') +
+            '</tbody></table></div></body></html>';
+    }
+
+    function openRosterPrintWindow() {
+        let iframe = document.getElementById('shift-print-frame');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'shift-print-frame';
+            iframe.setAttribute('aria-hidden', 'true');
+            iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+            document.body.appendChild(iframe);
+        }
+
+        const printDocument = iframe.contentWindow.document;
+        printDocument.open();
+        printDocument.write(buildRosterPrintHtml());
+        printDocument.close();
+
+        const printTarget = iframe.contentWindow;
+        printTarget.focus();
+        setTimeout(function() {
+            printTarget.print();
+        }, 150);
+    }
+
+    function printRoster() {
+        const doPrint = function() {
+            openRosterPrintWindow();
+        };
+        if (saveInFlight) {
+            saveInFlight.finally(doPrint);
+            return;
+        }
+        saveRoster({ silent: true }).finally(doPrint);
+    }
+
+    function loadWeek(weekStartIso) {
+        currentWeekStart = weekStartIso;
+        setStatus('Loading…', 'muted');
+        return fetch('/api/weekly-shift-roster?week=' + encodeURIComponent(currentWeekStart))
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok) throw new Error(data.error || 'Could not load roster');
+                    return data;
+                });
+            })
+            .then(function(data) {
+                currentWeekStart = data.week_start || currentWeekStart;
+                weekDays = normalizeWeekDays(data.days || buildWeekDays(currentWeekStart));
+                rosterRows = ensureMinimumRows((data.rows || []).map(normalizeRow), SHIFT_DEFAULT_ROW_COUNT);
+                render();
+                setStatus('', 'muted');
+                const url = new URL(window.location.href);
+                url.searchParams.set('week', currentWeekStart);
+                window.history.replaceState({}, '', url);
+            })
+            .catch(function(error) {
+                setStatus(error.message || 'Could not load roster.', 'error');
+            });
+    }
+
+    function shiftWeek(offsetDays) {
+        saveRoster({ silent: true }).finally(function() {
+            const date = parseLocalDate(currentWeekStart);
+            date.setDate(date.getDate() + offsetDays);
+            loadWeek(formatLocalIso(date));
+        });
+    }
+
+    rosterBody.addEventListener('click', function(event) {
+        if (event.target.closest('.shift-drag-crumb')) return;
+
+        const dayCell = event.target.closest('.shift-day-cell');
+        if (dayCell) {
+            openShiftTimeModal(parseInt(dayCell.dataset.rowIndex, 10), parseInt(dayCell.dataset.dayIndex, 10));
+            return;
+        }
+
+        const removeBtn = event.target.closest('.shift-remove-row');
+        if (removeBtn) {
+            const tr = removeBtn.closest('tr');
+            if (tr) tr.remove();
+            rosterRows = collectRows();
+            renderRows();
+            scheduleAutoSave();
+        }
+    });
+
+    rosterBody.addEventListener('input', function(event) {
+        const input = event.target.closest('.shift-staff-input');
+        if (!input) return;
+        delete input.dataset.cleanerId;
+        showStaffSuggestions(input);
+    });
+
+    rosterBody.addEventListener('focusin', function(event) {
+        const input = event.target.closest('.shift-staff-input');
+        if (!input) return;
+        showStaffSuggestions(input);
+    });
+
+    rosterBody.addEventListener('mousedown', function(event) {
+        if (event.target.closest('.shift-staff-suggestion')) {
+            event.preventDefault();
+        }
+    });
+
+    rosterBody.addEventListener('click', function(event) {
+        const suggestion = event.target.closest('.shift-staff-suggestion');
+        if (!suggestion) return;
+
+        const wrap = suggestion.closest('.shift-staff-autocomplete');
+        const input = wrap ? wrap.querySelector('.shift-staff-input') : null;
+        if (!input) return;
+
+        if (suggestion.dataset.action === 'new-staff') {
+            hideStaffSuggestions(input);
+            openAddStaffModalFromRoster(input);
+            return;
+        }
+
+        const staffId = parseInt(suggestion.dataset.staffId, 10);
+        const staff = SHIFT_ACTIVE_STAFF.find(function(item) {
+            return item.id === staffId;
+        });
+        if (!staff) return;
+
+        selectStaffForInput(input, staff);
+        commitStaffInput(input);
+    });
+
+    rosterBody.addEventListener('keydown', function(event) {
+        const input = event.target.closest('.shift-staff-input');
+        if (!input) return;
+
+        const wrap = input.closest('.shift-staff-autocomplete');
+        const list = wrap ? wrap.querySelector('.shift-staff-suggestions') : null;
+        const isOpen = list && !list.classList.contains('d-none');
+        const items = list
+            ? Array.from(list.querySelectorAll('.shift-staff-suggestion:not(.create-new)'))
+            : [];
+
+        if (event.key === 'ArrowDown' && isOpen && items.length) {
+            event.preventDefault();
+            const current = parseInt(wrap.dataset.activeSuggestion || '-1', 10);
+            const next = Math.min(current + 1, items.length - 1);
+            wrap.dataset.activeSuggestion = String(next);
+            setActiveStaffSuggestion(list, next);
+            return;
+        }
+
+        if (event.key === 'ArrowUp' && isOpen && items.length) {
+            event.preventDefault();
+            const current = parseInt(wrap.dataset.activeSuggestion || '-1', 10);
+            const next = Math.max(current - 1, 0);
+            wrap.dataset.activeSuggestion = String(next);
+            setActiveStaffSuggestion(list, next);
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            if (isOpen && items.length) {
+                const activeIndex = parseInt(wrap.dataset.activeSuggestion || '0', 10);
+                const target = items[Math.max(activeIndex, 0)];
+                if (target && target.dataset.staffId) {
+                    const staff = SHIFT_ACTIVE_STAFF.find(function(item) {
+                        return item.id === parseInt(target.dataset.staffId, 10);
+                    });
+                    if (staff) {
+                        selectStaffForInput(input, staff);
+                        commitStaffInput(input);
+                        return;
+                    }
+                }
+            }
+            commitStaffInput(input);
+            return;
+        }
+
+        if (event.key === 'Escape' && isOpen) {
+            event.preventDefault();
+            hideStaffSuggestions(input);
+        }
+    });
+
+    rosterBody.addEventListener('focusout', function(event) {
+        const input = event.target.closest('.shift-staff-input');
+        if (!input) return;
+        const wrap = input.closest('.shift-staff-autocomplete');
+        const related = event.relatedTarget;
+        if (related && wrap && wrap.contains(related)) return;
+
+        setTimeout(function() {
+            if (!input.isConnected) return;
+            const match = resolveStaffByName(input.value.trim());
+            if (match) {
+                input.value = match.name;
+                input.dataset.cleanerId = String(match.id);
+            } else {
+                delete input.dataset.cleanerId;
+            }
+            hideStaffSuggestions(input);
+            rosterRows = collectRows();
+            renderRows();
+            scheduleAutoSave();
+        }, 150);
+    });
+
+    document.addEventListener('click', function(event) {
+        if (event.target.closest('.shift-staff-autocomplete')) return;
+        hideAllStaffSuggestions();
+    });
+
+    rosterBody.addEventListener('dragstart', function(event) {
+        const crumb = event.target.closest('.shift-drag-crumb');
+        if (!crumb) return;
+        event.stopPropagation();
+        const cell = crumb.closest('.shift-day-cell');
+        if (!cell) return;
+        shiftDragSource = {
+            rowIndex: parseInt(cell.dataset.rowIndex, 10),
+            dayIndex: parseInt(cell.dataset.dayIndex, 10),
+            targets: new Map(),
+        };
+        event.dataTransfer.setData('text/plain', 'shift-copy');
+        event.dataTransfer.effectAllowed = 'copy';
+    });
+
+    rosterBody.addEventListener('dragover', function(event) {
+        if (!shiftDragSource) return;
+        const cell = event.target.closest('.shift-day-cell');
+        if (!cell) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        addShiftDropTarget(cell);
+    });
+
+    rosterBody.addEventListener('drop', function(event) {
+        if (!shiftDragSource) return;
+        event.preventDefault();
+        const cell = event.target.closest('.shift-day-cell');
+        if (cell) addShiftDropTarget(cell);
+    });
+
+    rosterBody.addEventListener('dragend', function() {
+        finishShiftDragCopy();
+    });
+
+    function saveShiftTimes() {
+        const start = shiftStartInput.value.trim();
+        const end = shiftEndInput.value.trim();
+        if (!start || !end) {
+            setStatus('Enter both start and end times.', 'error');
+            if (!start) {
+                shiftStartInput.focus();
+            } else {
+                shiftEndInput.focus();
+            }
+            return false;
+        }
+        applyShiftEdit(shiftDay(start, end));
+        closeShiftTimeModal();
+        return true;
+    }
+
+    function applyQuickDayStatus(slot) {
+        applyShiftEdit(slot);
+        closeShiftTimeModal();
+    }
+
+    if (shiftTimeSaveBtn) {
+        shiftTimeSaveBtn.addEventListener('click', saveShiftTimes);
+    }
+
+    if (shiftSetOffBtn) {
+        shiftSetOffBtn.addEventListener('click', function() {
+            applyQuickDayStatus(offDay());
+        });
+    }
+
+    if (shiftSetLeaveBtn) {
+        shiftSetLeaveBtn.addEventListener('click', function() {
+            applyQuickDayStatus(leaveDay());
+        });
+    }
+
+    if (shiftStartInput) {
+        shiftStartInput.addEventListener('keydown', function(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            shiftEndInput.focus();
+        });
+    }
+
+    if (shiftEndInput) {
+        shiftEndInput.addEventListener('keydown', function(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            saveShiftTimes();
+        });
+    }
+
+    if (shiftTimeClearBtn) {
+        shiftTimeClearBtn.addEventListener('click', function() {
+            applyShiftEdit(emptyDay());
+            closeShiftTimeModal();
+        });
+    }
+
+    if (addRowBtn) {
+        addRowBtn.addEventListener('click', function() {
+            if (!rosterRows.length && rosterBody.querySelector('td[colspan]')) {
+                rosterBody.innerHTML = '';
+            }
+            rosterRows = collectRows();
+            rosterRows.push({
+                name: '',
+                cleaner_id: null,
+                days: [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()],
+            });
+            renderRows();
+            const lastInput = rosterBody.querySelector('tr:last-child .shift-staff-input');
+            if (lastInput) lastInput.focus();
+            scheduleAutoSave();
+        });
+    }
+
+    if (loadStaffBtn) {
+        loadStaffBtn.addEventListener('click', function() {
+            rosterRows = collectRows();
+            const existingNames = new Set(rosterRows.map(function(row) { return row.name.trim().toLowerCase(); }));
+            SHIFT_ACTIVE_STAFF.forEach(function(staff) {
+                if (!existingNames.has(staff.name.toLowerCase())) {
+                    rosterRows.push({
+                        name: staff.name,
+                        cleaner_id: staff.id,
+                        days: [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()],
+                    });
+                }
+            });
+            renderRows();
+            scheduleAutoSave();
+        });
+    }
+
+    if (printBtn) {
+        printBtn.addEventListener('click', printRoster);
+    }
+
+    if (prevWeekBtn) prevWeekBtn.addEventListener('click', function() { shiftWeek(-7); });
+    if (nextWeekBtn) nextWeekBtn.addEventListener('click', function() { shiftWeek(7); });
+
+    const assignedNewStaff = applyPendingStaffAssignment();
+    render();
+    if (assignedNewStaff) {
+        scheduleAutoSave();
+    }
+}
+
 function initStaffModalControls() {
     const staffRateType = document.getElementById('staff_rate_type');
     const flatMonthlyGroup = document.getElementById('flat_monthly_group');
@@ -482,7 +2064,15 @@ function initStaffModalControls() {
     const staffCategory = document.getElementById('staff_category');
     const newCategoryGroup = document.getElementById('new_category_group');
     const staffNewCategory = document.getElementById('staff_new_category');
+    const rosterAssignWeek = document.getElementById('roster_assign_week');
     if (!staffRateType) return;
+
+    document.querySelectorAll('[data-bs-target="#addStaffModal"]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            sessionStorage.removeItem('shiftRosterPendingAssign');
+            if (rosterAssignWeek) rosterAssignWeek.value = '';
+        });
+    });
 
     staffRateType.addEventListener('change', function() {
         flatMonthlyGroup.style.display = staffRateType.value === 'monthly' ? 'block' : 'none';

@@ -18,8 +18,8 @@
                         <i class="fas fa-user-plus me-2"></i>Add Staff
                     </button>
                     <a href="{{ url_for('log_form') }}" class="btn btn-primary btn-sm">
-                        <i class="fas fa-plus me-2"></i>Log Shift / Time
-                    </a>
+                        Log Shift
+                    </a> 
                     <form method="POST" action="{{ url_for('clear_db') }}" class="d-inline"
                           onsubmit="return confirm('Clear the entire database?\n\nThis will delete ALL staff and ALL logged entries. This cannot be undone.');">
                         <button type="submit" class="btn btn-outline-danger btn-sm">
