@@ -110,7 +110,7 @@
                             {% endfor %}
                         </div>
                         <div class="form-text">
-                            Tick all FOH staff who worked these dates. Hourly staff use time entries. Daily and monthly staff use shift entries. Flat monthly staff can use time entries to track hours.
+                            Tick all FOH staff who worked these dates. Hourly staff use time entries. Daily staff use shift entries. Monthly staff can use time entries to track hours, or shifts to mark worked days.
                         </div>
                     </div>
 
@@ -471,7 +471,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (rateType === 'hourly') {
             return ['time'];
         }
-        if (checkbox.dataset.flatMonthly === 'true') {
+        if (rateType === 'monthly') {
             return ['shift', 'time'];
         }
         return ['shift'];
@@ -524,10 +524,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 timeLogRadio.checked = false;
             }
         } else if (commonAllowed.size > 1) {
-            const onlyFlatMonthly = selectedCheckboxes.every(function(checkbox) {
-                return checkbox.dataset.flatMonthly === 'true';
+            const onlyMonthly = selectedCheckboxes.every(function(checkbox) {
+                return (checkbox.dataset.rateType || 'monthly') === 'monthly';
             });
-            if (onlyFlatMonthly) {
+            if (onlyMonthly) {
                 timeLogRadio.checked = true;
                 shiftLogRadio.checked = false;
             }
@@ -537,11 +537,11 @@ document.addEventListener('DOMContentLoaded', function() {
         submitButton.disabled = false;
 
         if (commonAllowed.size > 1) {
-            logTypeHelpText.textContent = 'Flat monthly staff can log time entries to track hours, or a shift to mark the month.';
+            logTypeHelpText.textContent = 'Monthly staff can log time entries to track hours, or a shift to mark a worked day.';
         } else if (commonAllowed.has('time')) {
             logTypeHelpText.textContent = 'Selected hourly staff can only be logged as time entries.';
         } else {
-            logTypeHelpText.textContent = 'Selected daily/monthly staff can only be logged as shift entries.';
+            logTypeHelpText.textContent = 'Selected daily staff can only be logged as shift entries.';
         }
         toggleLogTypeFields();
         refreshLoggedDatesFromServer();

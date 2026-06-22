@@ -16,11 +16,22 @@
     .stat-card.stat-card-circle:hover {
         transform: translateY(-2px);
     }
+    a.stat-card-link {
+        display: inline-block;
+        text-decoration: none;
+        color: inherit;
+    }
+    a.stat-card-link:hover {
+        color: inherit;
+    }
+    a.stat-card-link .stat-card.stat-card-circle {
+        cursor: pointer;
+    }
     .stat-card.staff { border-color: #3498db; }
     .stat-card.logs { border-color: #2ecc71; }
     .stat-card.hours { border-color: #9b59b6; }
     .stat-card.wages { border-color: #e67e22; }
-    .stat-card.today { border-color: #1abc9c; }
+    .stat-card.invoices { border-color: #1abc9c; }
     .stat-card-circle .stat-value {
         font-size: 1.35rem;
         font-weight: 700;
@@ -224,6 +235,60 @@
         text-align: left;
         padding: 0.18rem 0.35rem;
     }
+    .wage-bill-table th,
+    .wage-bill-table td {
+        vertical-align: middle;
+        text-align: center;
+        padding: 0.12rem 0.18rem;
+        line-height: 1.1;
+    }
+    .wage-bill-table th.category-col,
+    .wage-bill-table td.category-col {
+        text-align: left;
+        min-width: 135px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .wage-bill-table .amount-col {
+        width: 140px;
+        min-width: 120px;
+        font-weight: 600;
+        font-size: 0.78rem;
+        color: #198754;
+        padding-left: 0.35rem;
+        padding-right: 0.35rem;
+    }
+    .wage-bill-table .change-col {
+        width: 120px;
+        min-width: 100px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .wage-bill-table thead th {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+    }
+    .wage-bill-table tr.grand-total-row td {
+        font-size: 0.78rem;
+        font-weight: 700;
+        background-color: #e9ecef;
+    }
+    .wage-bill-table tr.grand-total-row .category-col {
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .wage-bill-table tr.grand-total-row .amount-col {
+        color: #146c43;
+    }
+    html {
+        scroll-behavior: smooth;
+    }
+    #wage-bill-by-category {
+        scroll-margin-top: 1rem;
+    }
 </style>
 {% endblock %}
 
@@ -238,9 +303,6 @@
         <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStaffModal">
             <i class="fas fa-user-plus me-2"></i>Add Staff
         </button>
-        <a href="{{ url_for('log_form') }}" class="btn btn-primary btn-sm">
-            Log Shift
-        </a>
     </div>
 </div>
 
@@ -248,41 +310,48 @@
  
 <div class="row g-1 mb-4 justify-content-center">
     <div class="col-6 col-md-6 col-xl text-center">
-        <div class="card stat-card stat-card-circle wages mx-auto d-flex align-items-center justify-content-center">
-            <div class="stat-value stat-value-sm mb-0" style="color:#e67e22">R{{ "%.2f"|format(dashboard.wage_bill_this_month) }}</div>
-        </div>
+        <a href="#wage-bill-by-category" class="stat-card-link" title="View wage bill by category">
+            <div class="card stat-card stat-card-circle wages mx-auto d-flex align-items-center justify-content-center">
+                <div class="stat-value stat-value-sm mb-0" style="color:#e67e22">R{{ "%.2f"|format(dashboard.wage_bill_this_month) }}</div>
+            </div>
+        </a>
         <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Wage Bill ({{ dashboard.period_label }})</div>
     </div>
     <div class="col-6 col-md-4 col-xl text-center">
-        <div class="card stat-card stat-card-circle staff mx-auto d-flex align-items-center justify-content-center">
-            <div class="stat-value text-primary mb-0">{{ dashboard.active_staff }}</div>
-        </div>
+        <a href="{{ url_for('staff_payroll') }}" class="stat-card-link" title="Manage payroll staff">
+            <div class="card stat-card stat-card-circle staff mx-auto d-flex align-items-center justify-content-center">
+                <div class="stat-value text-primary mb-0">{{ dashboard.active_staff }}</div>
+            </div>
+        </a>
         <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Active Staff</div>
         {% if dashboard.archived_staff > 0 %}
         <small class="text-muted d-block">{{ dashboard.archived_staff }} archived</small>
         {% endif %}
     </div>
     <div class="col-6 col-md-4 col-xl text-center">
-        <div class="card stat-card stat-card-circle logs mx-auto d-flex align-items-center justify-content-center">
-            <div class="stat-value text-success mb-0">{{ dashboard.logs_this_month }}</div>
-        </div>
-
-
+        <a href="{{ url_for('monthly_totals') }}" class="stat-card-link" title="View monthly totals">
+            <div class="card stat-card stat-card-circle logs mx-auto d-flex align-items-center justify-content-center">
+                <div class="stat-value text-success mb-0">{{ dashboard.logs_this_month }}</div>
+            </div>
+        </a>
         <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Logs This Month</div>
     </div>
     <div class="col-6 col-md-4 col-xl text-center">
-        <div class="card stat-card stat-card-circle hours mx-auto d-flex align-items-center justify-content-center">
-            <div class="stat-value mb-0" style="color:#9b59b6">{{ "%.1f"|format(dashboard.hours_this_month) }}</div>
-        </div>
-        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Hours This Month</div>
+        <a href="{{ url_for('weekly_totals', date_from=dashboard.week_start.isoformat(), date_to=dashboard.week_end.isoformat()) }}" class="stat-card-link" title="View weekly totals">
+            <div class="card stat-card stat-card-circle hours mx-auto d-flex align-items-center justify-content-center">
+                <div class="stat-value mb-0" style="color:#9b59b6">{{ dashboard.logs_this_week }}</div>
+            </div>
+        </a>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Logs This Week</div>
     </div>
     
     <div class="col-6 col-md-6 col-xl text-center">
-        <div class="card stat-card stat-card-circle today mx-auto d-flex align-items-center justify-content-center">
-            <div class="stat-value mb-0" style="color:#1abc9c">{{ dashboard.staff_working_today }}</div>
-        </div>
-        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Working Today</div>
-        <small class="text-muted d-block">staff with logs</small>
+        <a href="{{ url_for('invoices') }}" class="stat-card-link" title="Staff invoices">
+            <div class="card stat-card stat-card-circle invoices mx-auto d-flex align-items-center justify-content-center">
+                <div class="stat-value mb-0" style="color:#1abc9c"><i class="fas fa-file-invoice-dollar"></i></div>
+            </div>
+        </a>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Invoices</div>
     </div>
 </div>
 
@@ -414,7 +483,7 @@
 
     <!-- Category comparison -->
     <div class="col-12">
-        <div class="card h-100">
+        <div class="card h-100" id="wage-bill-by-category">
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <h6 class="card-title mb-0"><i class="fas fa-calculator me-2"></i>Wage Bill by Category</h6>
                 <a href="{{ url_for('monthly_totals') }}" class="btn btn-sm btn-outline-primary">Full Report</a>
@@ -451,32 +520,32 @@
 
                 {% if wage_comparison.has_data %}
                 <div class="table-responsive mb-4">
-                    <table class="table table-sm table-bordered mb-0 align-middle text-center">
+                    <table class="table table-sm table-bordered wage-bill-table mb-2">
                         <thead class="table-light">
                             <tr>
-                                <th>Category</th>
-                                <th>{{ wage_comparison.label_a }}</th>
-                                <th>{{ wage_comparison.label_b }}</th>
-                                <th>Change</th>
+                                <th class="category-col">Category</th>
+                                <th class="amount-col">{{ wage_comparison.label_a }}</th>
+                                <th class="amount-col">{{ wage_comparison.label_b }}</th>
+                                <th class="change-col">Change</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for row in wage_comparison.rows %}
-                            <tr{% if row.is_grand_total %} class="table-primary fw-bold"{% endif %}>
-                                <td>{{ row.label }}</td>
-                                <td class="text-success">
+                            <tr{% if row.is_grand_total %} class="grand-total-row"{% endif %}>
+                                <td class="category-col">{{ row.label }}</td>
+                                <td class="amount-col">
                                     R{{ "%.2f"|format(row.amount_a) }}
                                     {% if row.amount_a > 0 and not row.is_grand_total %}
-                                    <span class="text-muted small">({{ "%.1f"|format(row.pct_a) }}%)</span>
+                                    <span class="text-muted fw-normal small">({{ "%.1f"|format(row.pct_a) }}%)</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-success">
+                                <td class="amount-col">
                                     R{{ "%.2f"|format(row.amount_b) }}
                                     {% if row.amount_b > 0 and not row.is_grand_total %}
-                                    <span class="text-muted small">({{ "%.1f"|format(row.pct_b) }}%)</span>
+                                    <span class="text-muted fw-normal small">({{ "%.1f"|format(row.pct_b) }}%)</span>
                                     {% endif %}
                                 </td>
-                                <td>
+                                <td class="change-col">
                                     {% if row.change > 0 %}
                                     <span class="text-success">+R{{ "%.2f"|format(row.change) }}</span>
                                     {% elif row.change < 0 %}
@@ -484,12 +553,8 @@
                                     {% else %}
                                     <span class="text-muted">R0.00</span>
                                     {% endif %}
-                                    {% if row.change_pct is not none and not row.is_grand_total %}
-                                    <span class="text-muted small d-block">
-                                        {% if row.change_pct > 0 %}+{% endif %}{{ "%.1f"|format(row.change_pct) }}%
-                                    </span>
-                                    {% elif row.is_grand_total and row.change_pct is not none %}
-                                    <span class="text-muted small d-block">
+                                    {% if row.change_pct is not none %}
+                                    <span class="text-muted fw-normal small d-block">
                                         {% if row.change_pct > 0 %}+{% endif %}{{ "%.1f"|format(row.change_pct) }}%
                                     </span>
                                     {% endif %}
@@ -643,6 +708,10 @@
                     <div class="mb-3">
                         <label for="staff_name" class="form-label">Staff Name</label>
                         <input type="text" class="form-control" id="staff_name" name="name" required placeholder="Enter staff member's name">
+                    </div>
+                    <div class="mb-3">
+                        <label for="staff_id_number" class="form-label">ID Number</label>
+                        <input type="text" class="form-control" id="staff_id_number" name="id_number" maxlength="30" placeholder="Optional staff ID">
                     </div>
                     <div class="mb-3">
                         <label for="staff_category" class="form-label">Category</label>

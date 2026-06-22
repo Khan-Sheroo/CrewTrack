@@ -10,28 +10,117 @@
 
 {% block extra_css %}
 <style>
-    .staff-toggle-btn {
-        width: 1.75rem;
-        height: 1.75rem;
-        padding: 0;
-        line-height: 1;
+    .weekly-totals-table th,
+    .weekly-totals-table td {
+        vertical-align: middle;
+        text-align: center;
+        padding: 0.12rem 0.18rem;
+        line-height: 1.1;
     }
-    .staff-toggle-btn[aria-expanded="true"] .fa-chevron-right {
+    .weekly-totals-table th.staff-col,
+    .weekly-totals-table td.staff-col {
+        text-align: left;
+        min-width: 135px;
+    }
+    .weekly-totals-table .category-col {
+        width: 100px;
+        min-width: 90px;
+        font-size: 0.75rem;
+    }
+    .weekly-totals-table .week-col {
+        width: 110px;
+        min-width: 100px;
+        font-size: 0.75rem;
+    }
+    .weekly-totals-table .entries-col,
+    .weekly-totals-table .hours-col {
+        width: 72px;
+        min-width: 68px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .weekly-totals-table .hours-col {
+        color: #0dcaf0;
+    }
+    .weekly-totals-table .rate-col {
+        width: 180px;
+        min-width: 160px;
+        font-weight: 600;
+        font-size: 0.78rem;
+        color: #198754;
+        padding-left: 0.35rem;
+        padding-right: 0.35rem;
+    }
+    .weekly-totals-table .total-col {
+        width: 96px;
+        min-width: 90px;
+        font-weight: 600;
+        font-size: 0.78rem;
+        color: #198754;
+    }
+    .weekly-totals-table tr.staff-category-header td {
+        background-color: #f8f9fa;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+        text-align: left;
+        padding: 0.18rem 0.35rem;
+    }
+    .weekly-totals-table .staff-name {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    .weekly-totals-table .staff-toggle-btn {
+        min-height: 1.45rem;
+        width: 1.45rem;
+        line-height: 1;
+        padding: 0.1rem 0.25rem;
+        font-size: 0.72rem;
+    }
+    .weekly-totals-table .staff-toggle-btn[aria-expanded="true"] .fa-chevron-right {
         transform: rotate(90deg);
     }
-    .staff-toggle-btn .fa-chevron-right {
+    .weekly-totals-table .staff-toggle-btn .fa-chevron-right {
         transition: transform 0.2s ease;
     }
-    .staff-summary-row {
+    .weekly-totals-table tr.week-detail-row td {
+        font-size: 0.72rem;
+        color: #6c757d;
+    }
+    .weekly-totals-table tr.week-detail-row td.staff-col {
+        padding-left: 1.75rem;
+    }
+    .weekly-totals-table tr.week-detail-row .rate-col,
+    .weekly-totals-table tr.week-detail-row .total-col,
+    .weekly-totals-table tr.week-detail-row .entries-col,
+    .weekly-totals-table tr.week-detail-row .hours-col {
+        font-weight: 500;
+        color: #6c757d;
+    }
+    .weekly-totals-table tr.totals-section-header td {
+        background-color: #f8f9fa;
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #6c757d;
+        text-align: left;
+        padding: 0.18rem 0.35rem;
+    }
+    .weekly-totals-table tr.totals-row td {
+        font-size: 0.75rem;
+        font-weight: 600;
         background-color: #f8f9fa;
     }
-    .week-detail-row td {
-        border-top: none;
-        padding-top: 0.35rem;
-        padding-bottom: 0.35rem;
+    .weekly-totals-table tr.grand-total-row td {
+        font-size: 0.78rem;
+        font-weight: 700;
+        background-color: #e9ecef;
     }
-    .week-detail-row td:first-child {
-        padding-left: 2.5rem;
+    .weekly-totals-table tr.grand-total-row .total-col {
+        color: #146c43;
     }
 </style>
 {% endblock %}
@@ -114,30 +203,27 @@
                 {% endif %}
 
                 {% if weekly_data %}
-                    <p class="text-muted small mb-3">
-                        <i class="fas fa-info-circle me-1"></i>
-                        Click a staff member to expand or hide their weekly hours.
+                    <p class="text-muted small mb-2">
+                        Click a staff member to expand or hide their weekly breakdown.
                     </p>
                     <div class="table-responsive">
-                        <table class="table table-hover align-middle">
-                            <thead>
+                        <table class="table table-sm table-bordered weekly-totals-table mb-2">
+                            <thead class="table-light">
                                 <tr>
-                                    <th>FOH Staff</th>
-                                    <th>Category</th>
-                                    <th>Week</th>
-                                    <th>Total Entries</th>
-                                    <th>Hours Logged</th>
-                                    <th>Rate</th>
-                                    <th>Total</th>
+                                    <th class="staff-col">Staff</th>
+                                    <th class="category-col">Category</th>
+                                    <th class="week-col">Week</th>
+                                    <th class="entries-col">Entries</th>
+                                    <th class="hours-col">Hours</th>
+                                    <th class="rate-col">Rate</th>
+                                    <th class="total-col">Total</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for category_name, staff_members in weekly_data.items() %}
                                     {% if staff_members %}
-                                    <tr class="table-group-header">
-                                        <td colspan="7" class="bg-light fw-bold text-uppercase py-2 border-top">
-                                            <i class="fas fa-tag me-2"></i>{{ category_name }}:
-                                        </td>
+                                    <tr class="staff-category-header">
+                                        <td colspan="7">{{ category_name }}</td>
                                     </tr>
                                     {% for cleaner_name, cleaner_data in staff_members.items() %}
                                         {% set staff_slug = (category_name ~ '-' ~ cleaner_name)|replace(' ', '-')|replace("'", '')|replace(',', '')|lower %}
@@ -148,9 +234,9 @@
                                             {% set ns.total_pay = ns.total_pay + week_data['total'] %}
                                             {% set ns.week_count = ns.week_count + 1 %}
                                         {% endfor %}
-                                        <tr class="staff-summary-row">
-                                            <td>
-                                                <div class="d-flex align-items-center gap-2">
+                                        <tr class="staff-row">
+                                            <td class="staff-col">
+                                                <div class="d-flex align-items-center gap-1">
                                                     <button
                                                         type="button"
                                                         class="btn btn-sm btn-outline-secondary staff-toggle-btn"
@@ -162,73 +248,45 @@
                                                     >
                                                         <i class="fas fa-chevron-right"></i>
                                                     </button>
-                                                    <span class="badge bg-primary">{{ cleaner_name }}</span>
+                                                    <span class="staff-name">{{ cleaner_name }}</span>
                                                 </div>
                                             </td>
-                                            <td>
-                                                <span class="badge bg-secondary">{{ cleaner_data['category'] }}</span>
-                                            </td>
-                                            <td>
-                                                <span class="text-muted">{{ ns.week_count }} week{% if ns.week_count != 1 %}s{% endif %}</span>
-                                            </td>
-                                            <td>
-                                                <span class="fw-bold text-success">{{ ns.total_entries }}</span>
-                                            </td>
-                                            <td>
-                                                <span class="fw-bold text-info">{{ "%.2f"|format(ns.total_hours) }}</span>
-                                            </td>
-                                            <td>
-                                                <span class="text-muted">—</span>
-                                            </td>
-                                            <td>
-                                                <span class="fw-bold text-success">R{{ "%.2f"|format(ns.total_pay) }}</span>
-                                            </td>
+                                            <td class="category-col">{{ cleaner_data['category'] }}</td>
+                                            <td class="week-col">{{ ns.week_count }} wk{% if ns.week_count != 1 %}s{% endif %}</td>
+                                            <td class="entries-col">{{ ns.total_entries }}</td>
+                                            <td class="hours-col">{{ "%.1f"|format(ns.total_hours) }}</td>
+                                            <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
+                                            <td class="total-col">R{{ "%.2f"|format(ns.total_pay) }}</td>
                                         </tr>
                                         {% for week_key, week_data in cleaner_data['weeks'].items() %}
                                         <tr class="week-detail-row week-detail-{{ staff_slug }} collapse">
-                                            <td>
-                                                <small class="text-muted">{{ cleaner_name }}</small>
-                                            </td>
-                                            <td>
-                                                <span class="badge bg-secondary">{{ cleaner_data['category'] }}</span>
-                                            </td>
-                                            <td>{{ week_key }}</td>
-                                            <td>
-                                                <span class="fw-bold text-success">{{ week_data['entries'] }}</span>
-                                            </td>
-                                            <td>
-                                                <span class="fw-bold text-info">{{ "%.2f"|format(week_data['hours']) }}</span>
-                                            </td>
-                                            <td>
-                                                <span class="text-info">{{ week_data['rate_label'] }}</span>
-                                            </td>
-                                            <td>
-                                                <span class="fw-bold text-success">R{{ "%.2f"|format(week_data['total']) }}</span>
-                                            </td>
+                                            <td class="staff-col">{{ week_key }}</td>
+                                            <td class="category-col">{{ cleaner_data['category'] }}</td>
+                                            <td class="week-col">—</td>
+                                            <td class="entries-col">{{ week_data['entries'] }}</td>
+                                            <td class="hours-col">{{ "%.1f"|format(week_data['hours']) }}</td>
+                                            <td class="rate-col">{{ week_data['rate_label'] }}</td>
+                                            <td class="total-col">R{{ "%.2f"|format(week_data['total']) }}</td>
                                         </tr>
                                         {% endfor %}
                                     {% endfor %}
                                     {% endif %}
                                 {% endfor %}
                                 {% if weekly_data %}
-                                <tr class="table-group-header border-top-3">
-                                    <td colspan="7" class="bg-light fw-bold py-2 border-top-3">
-                                        <i class="fas fa-calculator me-2"></i>Category Totals:
-                                    </td>
+                                <tr class="totals-section-header">
+                                    <td colspan="7">Category totals</td>
                                 </tr>
                                 {% for row in category_totals.display_rows %}
-                                <tr class="bg-light">
-                                    <td colspan="2" class="fw-bold">{{ row.label }} Total</td>
+                                <tr class="totals-row">
+                                    <td class="staff-col" colspan="2">{{ row.label }}</td>
                                     <td colspan="4"></td>
-                                    <td class="fw-bold text-success">R{{ "%.2f"|format(row.amount) }}{{ wage_share(row.amount) }}</td>
+                                    <td class="total-col">R{{ "%.2f"|format(row.amount) }}{{ wage_share(row.amount) }}</td>
                                 </tr>
                                 {% endfor %}
-                                <tr class="table-group-header border-top-3">
-                                    <td colspan="2" class="bg-primary text-white fw-bold py-2 border-top-3">
-                                        <i class="fas fa-coins me-2"></i>Grand Total
-                                    </td>
-                                    <td colspan="4" class="bg-primary text-white"></td>
-                                    <td class="bg-primary text-white fw-bold py-2 border-top-3">R{{ "%.2f"|format(category_totals.grand_total) }} <span class="fw-normal">(100%)</span></td>
+                                <tr class="grand-total-row">
+                                    <td class="staff-col" colspan="2">Grand total</td>
+                                    <td colspan="4"></td>
+                                    <td class="total-col">R{{ "%.2f"|format(category_totals.grand_total) }} <span class="fw-normal text-muted">(100%)</span></td>
                                 </tr>
                                 {% endif %}
                             </tbody>

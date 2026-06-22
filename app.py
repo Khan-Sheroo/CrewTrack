@@ -49,6 +49,7 @@ class Cleaner(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
     name = db.Column(db.String(100), nullable=False)
+    id_number = db.Column(db.String(30), nullable=True)
     category = db.Column(db.String(50), nullable=True)  # e.g. Bartenders, Barbacks, Runners, Waiters, Manager
     rate_type = db.Column(db.String(20), nullable=True, default='monthly')
     rate_amount = db.Column(db.Float, nullable=True)
@@ -69,6 +70,7 @@ class TimeLog(db.Model):
     end_time = db.Column(db.Time, nullable=True)
     hours_worked = db.Column(db.Float, nullable=True)
     notes = db.Column(db.Text)
+    roster_week_start = db.Column(db.Date, nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class User(db.Model):
@@ -343,6 +345,29 @@ def normalize_category_name(raw_category: str) -> str | None:
     return category[:50]
 
 
+STAFF_ID_NUMBER_MAX_LENGTH = 30
+
+
+def normalize_staff_id_number(raw: str | None) -> str | None:
+    """Normalize a staff ID number from form or API input."""
+    if raw is None:
+        return None
+    cleaned = ''.join(str(raw).strip().split())
+    if not cleaned:
+        return None
+    return cleaned[:STAFF_ID_NUMBER_MAX_LENGTH]
+
+
+def find_duplicate_staff_id_number(id_number: str | None, exclude_cleaner_id: int | None = None):
+    """Return another staff member with the same ID number, if any."""
+    if not id_number:
+        return None
+    query = cleaners_query().filter(Cleaner.id_number == id_number)
+    if exclude_cleaner_id is not None:
+        query = query.filter(Cleaner.id != exclude_cleaner_id)
+    return query.first()
+
+
 def get_all_staff_categories() -> list:
     """Return default categories plus any custom ones already in use for this account."""
     owner_id = get_current_owner_id()
@@ -417,6 +442,34 @@ def calculate_hours_worked(start_time: time, end_time: time) -> float:
 def get_log_hours(log: "TimeLog") -> float:
     """Return hours for a time entry, or 0 for shift entries."""
     return float(log.hours_worked or 0)
+
+
+def get_tracked_hours_for_report(log: "TimeLog") -> float:
+    """Return hours to include in weekly/monthly hour totals."""
+    if normalize_log_type(log.log_type) == 'time':
+        return get_log_hours(log)
+    cleaner = log.cleaner
+    if cleaner and normalize_rate_type(cleaner.rate_type) == 'monthly':
+        if log.hours_worked:
+            return float(log.hours_worked)
+        if log.start_time and log.end_time:
+            return calculate_hours_worked(log.start_time, log.end_time)
+    return 0.0
+
+
+def add_tracked_hours_to_bucket(bucket: dict, log: "TimeLog") -> None:
+    """Accumulate tracked hours from a log into a weekly/monthly totals bucket."""
+    tracked = get_tracked_hours_for_report(log)
+    if tracked <= 0:
+        return
+    if normalize_log_type(log.log_type) == 'time':
+        regular_hours, sunday_hours, public_holiday_hours = split_log_hours(log)
+    else:
+        regular_hours, sunday_hours, public_holiday_hours = tracked, 0.0, 0.0
+    bucket['hours'] += regular_hours + sunday_hours + public_holiday_hours
+    bucket['regular_hours'] += regular_hours
+    bucket['sunday_hours'] += sunday_hours
+    bucket['public_holiday_hours'] += public_holiday_hours
 
 
 SUNDAY_HOURLY_MULTIPLIER = 1.5
@@ -564,6 +617,8 @@ def ensure_time_log_schema() -> None:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN end_time TIME"))
     if 'hours_worked' not in existing_columns:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN hours_worked FLOAT"))
+    if 'roster_week_start' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN roster_week_start DATE"))
 
     db.session.commit()
 
@@ -590,6 +645,8 @@ def ensure_cleaner_schema() -> None:
         db.session.execute(
             db.text("ALTER TABLE cleaner ADD COLUMN flat_monthly BOOLEAN NOT NULL DEFAULT 0")
         )
+    if 'id_number' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE cleaner ADD COLUMN id_number VARCHAR(30)"))
 
     db.session.execute(
         db.text("UPDATE cleaner SET category = 'Manager' WHERE category = 'Shop'")
@@ -754,9 +811,10 @@ def calculate_period_total(
 
 def get_allowed_log_types_for_cleaner(cleaner: "Cleaner") -> frozenset:
     """Return log types a cleaner may use."""
-    if normalize_rate_type(cleaner.rate_type) == 'hourly':
+    rate_type = normalize_rate_type(cleaner.rate_type)
+    if rate_type == 'hourly':
         return frozenset({'time'})
-    if is_flat_monthly(cleaner):
+    if rate_type == 'monthly':
         return frozenset({'shift', 'time'})
     return frozenset({'shift'})
 
@@ -856,7 +914,7 @@ def build_staff_invoice_data(cleaner: "Cleaner", date_from: date, date_to: date)
         ]
     else:
         line_items = [build_invoice_line_item(cleaner, log) for log in logs]
-    total_hours = round(sum(get_log_hours(log) for log in logs), 2)
+    total_hours = round(sum(get_tracked_hours_for_report(log) for log in logs), 2)
     total_amount = round(sum(item['amount'] for item in line_items), 2)
     rate_type, rate_amount = get_cleaner_rate_config(cleaner, date_from)
 
@@ -1170,12 +1228,7 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
             }
 
         weekly_totals[cleaner_name]['weeks'][week_key]['entries'] += 1
-        if normalize_log_type(log.log_type) == 'time':
-            regular_hours, sunday_hours, public_holiday_hours = split_log_hours(log)
-            weekly_totals[cleaner_name]['weeks'][week_key]['hours'] += regular_hours + sunday_hours + public_holiday_hours
-            weekly_totals[cleaner_name]['weeks'][week_key]['regular_hours'] += regular_hours
-            weekly_totals[cleaner_name]['weeks'][week_key]['sunday_hours'] += sunday_hours
-            weekly_totals[cleaner_name]['weeks'][week_key]['public_holiday_hours'] += public_holiday_hours
+        add_tracked_hours_to_bucket(weekly_totals[cleaner_name]['weeks'][week_key], log)
         # Track month (avoid duplicates)
         if month not in weekly_totals[cleaner_name]['weeks'][week_key]['months']:
             weekly_totals[cleaner_name]['weeks'][week_key]['months'].append(month)
@@ -1183,7 +1236,11 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
     # Calculate totals for each week with month-specific daily rates
     for cleaner_name, cleaner_data in weekly_totals.items():
         cleaner_category = cleaner_data['category']
+        representative_date = None
         for week_key, week_data in cleaner_data['weeks'].items():
+            log_date = week_data['log_date']
+            if representative_date is None or log_date > representative_date:
+                representative_date = log_date
             entry_count = week_data['entries']
             hours_count = round(week_data['hours'], 2)
             sunday_hours = round(week_data.get('sunday_hours', 0.0), 2)
@@ -1193,7 +1250,6 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
             month = week_data['months'][0] if week_data['months'] else 1
             # Determine days per month: December = 26, others = 24
             days_in_month = 26 if month == 12 else 24
-            log_date = week_data['log_date']
             cleaner = cleaners_query().filter_by(name=cleaner_name).first()
             rate_type, rate_amount = get_cleaner_rate_config(cleaner, log_date) if cleaner else ('monthly', get_monthly_rate(cleaner_name, cleaner_category, log_date))
             flat_monthly = is_flat_monthly(cleaner) if cleaner else False
@@ -1217,13 +1273,33 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                         include_public_holiday_rate=public_holiday_hours > 0
                     )
                 else:
-                    week_rate_label = format_rate_label(rate_type, rate_amount)
+                    week_rate_label = format_rate_label(
+                        rate_type,
+                        rate_amount,
+                        flat_monthly=flat_monthly,
+                    )
             cleaner_data['weeks'][week_key] = {
                 'entries': entry_count,
                 'hours': hours_count,
                 'rate_label': week_rate_label,
                 'total': week_total
             }
+
+        cleaner = cleaners_query().filter_by(name=cleaner_name).first()
+        rep_date = representative_date or date.today()
+        if cleaner:
+            rate_type, rate_amount = get_cleaner_rate_config(cleaner, rep_date)
+            flat_monthly = is_flat_monthly(cleaner)
+            if normalize_rate_type(rate_type) == 'hourly':
+                cleaner_data['rate_label'] = format_hourly_rate_label(rate_amount)
+            else:
+                cleaner_data['rate_label'] = format_rate_label(
+                    rate_type,
+                    rate_amount,
+                    flat_monthly=flat_monthly,
+                )
+        else:
+            cleaner_data['rate_label'] = '—'
     
     # Group by category and sort, separating head bartenders
     head_barman_names = ['EDSON', 'NICKI', 'COLLIN (bar)', 'COLLIN bar', 'MUKETIWA']
@@ -1328,13 +1404,7 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
             }
 
         monthly_totals[cleaner_id]['months'][month_key]['entries'] += 1
-        if normalize_log_type(log.log_type) == 'time':
-            regular_hours, sunday_hours, public_holiday_hours = split_log_hours(log)
-            month_bucket = monthly_totals[cleaner_id]['months'][month_key]
-            month_bucket['hours'] += regular_hours + sunday_hours + public_holiday_hours
-            month_bucket['regular_hours'] += regular_hours
-            month_bucket['sunday_hours'] += sunday_hours
-            month_bucket['public_holiday_hours'] += public_holiday_hours
+        add_tracked_hours_to_bucket(monthly_totals[cleaner_id]['months'][month_key], log)
     
     # Calculate totals for each month with month-specific daily rates
     for cleaner_id, cleaner_data in monthly_totals.items():
@@ -1379,6 +1449,27 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
                     public_holiday_hours=public_holiday_hours
                 )
             }
+
+        cleaner = get_cleaner_for_owner(cleaner_id)
+        representative_date = date.today()
+        if cleaner_data['months']:
+            representative_date = max(
+                date(int(month_key.split('-')[0]), int(month_key.split('-')[1]), 1)
+                for month_key in cleaner_data['months']
+            )
+        if cleaner:
+            rate_type, rate_amount = get_cleaner_rate_config(cleaner, representative_date)
+            flat_monthly = is_flat_monthly(cleaner)
+            if normalize_rate_type(rate_type) == 'hourly':
+                cleaner_data['rate_label'] = format_hourly_rate_label(rate_amount)
+            else:
+                cleaner_data['rate_label'] = format_rate_label(
+                    rate_type,
+                    rate_amount,
+                    flat_monthly=flat_monthly,
+                )
+        else:
+            cleaner_data['rate_label'] = '—'
     
     # Group by category and sort, separating head bartenders
     head_barman_names = ['EDSON', 'NICKI', 'COLLIN (bar)', 'COLLIN bar', 'MUKETIWA']
@@ -1470,8 +1561,7 @@ def get_monthly_totals_with_details():
             }
 
         monthly_data[cleaner_name][month_key]['entry_total'] += 1
-        if normalize_log_type(log.log_type) == 'time':
-            monthly_data[cleaner_name][month_key]['hours_total'] += get_log_hours(log)
+        monthly_data[cleaner_name][month_key]['hours_total'] += get_tracked_hours_for_report(log)
         monthly_data[cleaner_name][month_key]['entries'].append({
             'id': log.id,
             'cleaner_id': cleaner_id,
@@ -1479,7 +1569,7 @@ def get_monthly_totals_with_details():
             'log_type': normalize_log_type(log.log_type),
             'start_time': log.start_time,
             'end_time': log.end_time,
-            'hours_worked': get_log_hours(log),
+            'hours_worked': get_tracked_hours_for_report(log),
             'notes': log.notes,
             'created_at': log.created_at
         })
@@ -1515,8 +1605,7 @@ def get_monthly_totals_by_category():
             }
 
         category_data[category_name][cleaner_name][month_key]['entry_total'] += 1
-        if normalize_log_type(log.log_type) == 'time':
-            category_data[category_name][cleaner_name][month_key]['hours_total'] += get_log_hours(log)
+        category_data[category_name][cleaner_name][month_key]['hours_total'] += get_tracked_hours_for_report(log)
         category_data[category_name][cleaner_name][month_key]['entries'].append({
             'id': log.id,
             'cleaner_id': cleaner_id,
@@ -1524,7 +1613,7 @@ def get_monthly_totals_by_category():
             'log_type': normalize_log_type(log.log_type),
             'start_time': log.start_time,
             'end_time': log.end_time,
-            'hours_worked': get_log_hours(log),
+            'hours_worked': get_tracked_hours_for_report(log),
             'notes': log.notes,
             'created_at': log.created_at
         })
@@ -1548,8 +1637,39 @@ def get_cleaners_by_category(active_only=True, archived_only=False):
     ordered = {}
     for group_name in sort_display_categories(grouped.keys()):
         if grouped[group_name]:
-            ordered[group_name] = grouped[group_name]
+            ordered[group_name] = sorted(grouped[group_name], key=lambda cleaner: cleaner.name.casefold())
     return ordered
+
+
+def build_staff_payroll_row(cleaner: "Cleaner", today: date | None = None) -> dict:
+    """Serialize a cleaner for the payroll staff management page."""
+    today = today or date.today()
+    rate_type, rate_amount = get_cleaner_rate_config(cleaner, today)
+    log_count = TimeLog.query.filter_by(cleaner_id=cleaner.id).count()
+    return {
+        'id': cleaner.id,
+        'name': cleaner.name,
+        'id_number': cleaner.id_number or '',
+        'category': cleaner.category or 'Uncategorized',
+        'rate_type': rate_type,
+        'rate_amount': rate_amount,
+        'rate_label': format_rate_label(rate_type, rate_amount, flat_monthly=is_flat_monthly(cleaner)),
+        'flat_monthly': is_flat_monthly(cleaner),
+        'active': cleaner.active,
+        'log_count': log_count,
+        'can_delete': log_count == 0,
+    }
+
+
+def redirect_after_staff_form(
+    return_to: str | None = None,
+    roster_assign_week: str | None = None,
+    assign_staff_id: int | None = None,
+):
+    """Redirect after staff create/update/archive actions."""
+    if return_to == 'staff':
+        return redirect(url_for('staff_payroll'))
+    return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week, assign_staff_id)))
 
 
 DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -1707,8 +1827,114 @@ def save_weekly_shift_roster(owner_id: int, week_start: date, rows: list[dict]) 
             rows_data=payload,
         )
         db.session.add(roster)
+    sync_roster_week_to_time_logs(owner_id, week_start, normalized)
     db.session.commit()
     return normalized
+
+
+def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
+    """Build time-log fields for a roster shift day, or None when no log should exist."""
+    if not day_slot or day_slot.get('status') != 'shift':
+        return None
+
+    start_time = parse_time_value(day_slot.get('start')) if day_slot.get('start') else None
+    end_time = parse_time_value(day_slot.get('end')) if day_slot.get('end') else None
+    has_times = bool(start_time and end_time)
+    rate_type = normalize_rate_type(cleaner.rate_type)
+    allowed = get_allowed_log_types_for_cleaner(cleaner)
+
+    if rate_type == 'hourly':
+        if not has_times:
+            return None
+        return {
+            'log_type': 'time',
+            'start_time': start_time,
+            'end_time': end_time,
+            'hours_worked': calculate_hours_worked(start_time, end_time),
+        }
+
+    if has_times and 'time' in allowed:
+        return {
+            'log_type': 'time',
+            'start_time': start_time,
+            'end_time': end_time,
+            'hours_worked': calculate_hours_worked(start_time, end_time),
+        }
+
+    hours_worked = calculate_hours_worked(start_time, end_time) if has_times else None
+    return {
+        'log_type': 'shift',
+        'start_time': start_time,
+        'end_time': end_time,
+        'hours_worked': hours_worked,
+    }
+
+
+def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
+    """Apply roster-derived fields onto an existing time log."""
+    log.log_type = payload['log_type']
+    log.start_time = payload.get('start_time')
+    log.end_time = payload.get('end_time')
+    log.hours_worked = payload.get('hours_worked')
+
+
+def sync_roster_week_to_time_logs(owner_id: int, week_start: date, rows: list[dict]) -> None:
+    """Create, update, or remove time logs so roster shifts appear in reports."""
+    week_end = week_start + timedelta(days=6)
+    desired: dict[tuple[int, date], dict] = {}
+
+    for row in rows:
+        cleaner_id = row.get('cleaner_id')
+        if not cleaner_id:
+            continue
+        cleaner = get_cleaner_for_owner(cleaner_id, owner_id)
+        if not cleaner:
+            continue
+
+        days = row.get('days') or []
+        for day_index in range(7):
+            day_slot = days[day_index] if day_index < len(days) else None
+            payload = build_roster_log_payload(cleaner, day_slot)
+            if not payload:
+                continue
+            work_date = week_start + timedelta(days=day_index)
+            desired[(cleaner_id, work_date)] = payload
+
+    existing_roster_logs = timelogs_query().filter(
+        TimeLog.roster_week_start == week_start,
+        TimeLog.date >= week_start,
+        TimeLog.date <= week_end,
+    ).all()
+    existing_by_key = {(log.cleaner_id, log.date): log for log in existing_roster_logs}
+
+    for key, log in list(existing_by_key.items()):
+        if key not in desired:
+            db.session.delete(log)
+
+    for key, payload in desired.items():
+        cleaner_id, work_date = key
+        log = existing_by_key.get(key)
+        if log:
+            apply_roster_log_fields(log, payload)
+            continue
+
+        manual_log = timelogs_query().filter(
+            TimeLog.cleaner_id == cleaner_id,
+            TimeLog.date == work_date,
+            TimeLog.roster_week_start.is_(None),
+        ).first()
+        if manual_log:
+            continue
+
+        db.session.add(TimeLog(
+            cleaner_id=cleaner_id,
+            date=work_date,
+            roster_week_start=week_start,
+            log_type=payload['log_type'],
+            start_time=payload.get('start_time'),
+            end_time=payload.get('end_time'),
+            hours_worked=payload.get('hours_worked'),
+        ))
 
 
 def get_sa_public_holiday_iso_strings(*years: int) -> list[str]:
@@ -1842,7 +2068,7 @@ def get_staff_by_date(filter_year=None, filter_month=None, date_from=None, date_
             'log_type': normalize_log_type(log.log_type),
             'start_time': log.start_time.strftime('%H:%M') if log.start_time else None,
             'end_time': log.end_time.strftime('%H:%M') if log.end_time else None,
-            'hours_worked': get_log_hours(log),
+            'hours_worked': get_tracked_hours_for_report(log),
             'notes': log.notes
         })
     
@@ -1923,20 +2149,12 @@ def get_dashboard_stats():
         TimeLog.date <= month_end,
     ).all()
     logs_count = len(month_logs)
-    hours_count = round(
-        sum(
-            get_log_hours(log)
-            for log in month_logs
-            if normalize_log_type(log.log_type) == 'time'
-        ),
-        2,
-    )
 
-    staff_working_today = (
+    week_start = get_week_start(today)
+    week_end = week_start + timedelta(days=6)
+    logs_this_week = (
         timelogs_query()
-        .filter(TimeLog.date == today)
-        .with_entities(TimeLog.cleaner_id)
-        .distinct()
+        .filter(TimeLog.date >= week_start, TimeLog.date <= week_end)
         .count()
     )
 
@@ -1952,9 +2170,10 @@ def get_dashboard_stats():
         'active_staff': cleaners_query().filter_by(active=True).count(),
         'archived_staff': cleaners_query().filter_by(active=False).count(),
         'logs_this_month': logs_count,
-        'hours_this_month': hours_count,
+        'logs_this_week': logs_this_week,
+        'week_start': week_start,
+        'week_end': week_end,
         'wage_bill_this_month': category_totals['grand_total'],
-        'staff_working_today': staff_working_today,
         'category_totals': category_totals,
         'recent_logs': recent_logs,
     }
@@ -2523,36 +2742,46 @@ def update_log():
 def delete_log():
     """Delete a shift or time log entry."""
     log_id = request.form.get('log_id')
-    
-    if not log_id:
-        flash('Invalid log ID', 'error')
+    wants_json = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    return_to = request.form.get('return_to')
+
+    def respond(success: bool, message: str, status_code: int = 200, **extra):
+        payload = {'success': success, 'message': message, **extra}
+        if wants_json:
+            return jsonify(payload), status_code
+        flash(message, 'success' if success else 'error')
+        if return_to == 'manage':
+            return redirect(url_for('manage_logs'))
         return redirect(url_for('index'))
-    
+
+    if not log_id:
+        return respond(False, 'Invalid log ID', 400)
+
     try:
         log_id = int(log_id)
         time_log = get_time_log_by_id(log_id)
-        
+
         if not time_log:
-            flash('Time log not found', 'error')
-            return redirect(url_for('index'))
-        
-        # Store log details for flash message
+            return respond(False, 'Time log not found', 404)
+
         cleaner_name = time_log.cleaner.name
         log_date = time_log.date.strftime('%Y-%m-%d')
-        
-        # Delete the log entry
+
         db.session.delete(time_log)
         db.session.commit()
-        
-        flash(f'Log deleted successfully! (FOH Staff: {cleaner_name}, Date: {log_date})', 'success')
-        
+
+        return respond(
+            True,
+            f'Log deleted successfully! (FOH Staff: {cleaner_name}, Date: {log_date})',
+            log_id=log_id,
+        )
+
     except (ValueError, TypeError):
-        flash('Invalid log ID', 'error')
-    except Exception as e:
-        flash('Error deleting time log', 'error')
         db.session.rollback()
-    
-    return redirect(url_for('index'))
+        return respond(False, 'Invalid log ID', 400)
+    except Exception:
+        db.session.rollback()
+        return respond(False, 'Error deleting time log', 500)
 
 @app.route('/weekly')
 def weekly_totals():
@@ -2974,52 +3203,245 @@ def by_date_view():
         available_months=months,
     )
 
-@app.route('/archive-cleaner', methods=['POST'])
-def archive_cleaner():
-    """Archive a FOH staff member from hours (they won't appear for new shifts; past hours kept)."""
+@app.route('/staff')
+def staff_payroll():
+    """Manage active payroll staff with rates and full CRUD."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        flash('Please log in to manage staff.', 'error')
+        return redirect(url_for('login'))
+
+    today = date.today()
+    active_by_category = get_cleaners_by_category(active_only=True)
+    archived_by_category = get_cleaners_by_category(active_only=False, archived_only=True)
+    active_staff = [
+        build_staff_payroll_row(cleaner, today)
+        for cleaners in active_by_category.values()
+        for cleaner in cleaners
+    ]
+    archived_staff = [
+        build_staff_payroll_row(cleaner, today)
+        for cleaners in archived_by_category.values()
+        for cleaner in cleaners
+    ]
+    has_archived = bool(archived_staff)
+
+    return render_template(
+        'staff_payroll.html',
+        active_by_category={
+            category: [build_staff_payroll_row(cleaner, today) for cleaner in cleaners]
+            for category, cleaners in active_by_category.items()
+        },
+        archived_by_category={
+            category: [build_staff_payroll_row(cleaner, today) for cleaner in cleaners]
+            for category, cleaners in archived_by_category.items()
+        },
+        active_staff_count=len(active_staff),
+        archived_staff_count=len(archived_staff),
+        has_archived=has_archived,
+        staff_categories=get_all_staff_categories(),
+    )
+
+
+@app.route('/update-staff', methods=['POST'])
+def update_staff():
+    """Update an existing staff member's details and rate."""
+    return_to = (request.form.get('return_to') or '').strip() or None
+    cleaner_id = request.form.get('cleaner_id')
+    name = (request.form.get('name') or '').strip()
+    category_field = request.form.get('category')
+    new_category_field = request.form.get('new_category', '')
+    raw_rate_type = request.form.get('rate_type')
+    rate_amount_raw = request.form.get('rate_amount')
+
+    if not cleaner_id or not name or not rate_amount_raw:
+        flash('Please fill in all required fields', 'error')
+        return redirect_after_staff_form(return_to)
+
+    category = resolve_staff_category_from_form(category_field, new_category_field)
+    if not category:
+        flash('Please select a category', 'error')
+        return redirect_after_staff_form(return_to)
+
+    if category_field == '__new__' and not normalize_category_name(new_category_field):
+        flash('Please enter a name for the new category', 'error')
+        return redirect_after_staff_form(return_to)
+
+    if raw_rate_type not in ['hourly', 'daily', 'monthly']:
+        flash('Invalid rate type selected', 'error')
+        return redirect_after_staff_form(return_to)
+
+    try:
+        cleaner_id = int(cleaner_id)
+        cleaner = get_cleaner_for_owner(cleaner_id)
+        if not cleaner:
+            flash('Staff member not found', 'error')
+            return redirect_after_staff_form(return_to)
+
+        rate_type = normalize_rate_type(raw_rate_type)
+        rate_amount = float(rate_amount_raw)
+        flat_monthly = request.form.get('flat_monthly') == 'on'
+        if rate_amount <= 0:
+            flash('Rate amount must be greater than zero', 'error')
+            return redirect_after_staff_form(return_to)
+        if flat_monthly and rate_type != 'monthly':
+            flash('Flat rate only applies to monthly staff', 'error')
+            return redirect_after_staff_form(return_to)
+
+        duplicate = cleaners_query().filter(
+            Cleaner.name == name,
+            Cleaner.id != cleaner_id,
+        ).first()
+        if duplicate:
+            flash(f'Staff member "{name}" already exists!', 'error')
+            return redirect_after_staff_form(return_to)
+
+        id_number = normalize_staff_id_number(request.form.get('id_number'))
+        duplicate_id = find_duplicate_staff_id_number(id_number, exclude_cleaner_id=cleaner_id)
+        if duplicate_id:
+            flash(f'ID number "{id_number}" is already assigned to "{duplicate_id.name}".', 'error')
+            return redirect_after_staff_form(return_to)
+
+        cleaner.name = name[:100]
+        cleaner.id_number = id_number
+        cleaner.category = category
+        cleaner.rate_type = rate_type
+        cleaner.rate_amount = rate_amount
+        cleaner.flat_monthly = flat_monthly
+        db.session.commit()
+
+        flash(
+            f'Updated "{cleaner.name}" — {format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)}.',
+            'success',
+        )
+    except (ValueError, TypeError):
+        flash('Invalid data provided', 'error')
+    except Exception:
+        db.session.rollback()
+        flash('Error updating staff member', 'error')
+
+    return redirect_after_staff_form(return_to)
+
+
+@app.route('/api/staff-id-number', methods=['POST'])
+def update_staff_id_number_api():
+    """Update a staff member's ID number from the payroll page."""
+    if get_current_owner_id() is None:
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        cleaner_id = int(payload.get('cleaner_id'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'Invalid staff member'}), 400
+
+    cleaner = get_cleaner_for_owner(cleaner_id)
+    if not cleaner:
+        return jsonify({'success': False, 'error': 'Staff member not found'}), 404
+
+    id_number = normalize_staff_id_number(payload.get('id_number'))
+    duplicate = find_duplicate_staff_id_number(id_number, exclude_cleaner_id=cleaner_id)
+    if duplicate:
+        return jsonify({
+            'success': False,
+            'error': f'ID number already assigned to {duplicate.name}',
+        }), 409
+
+    try:
+        cleaner.id_number = id_number
+        db.session.commit()
+        return jsonify({'success': True, 'id_number': id_number or ''})
+    except Exception:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': 'Error saving ID number'}), 500
+
+
+@app.route('/delete-staff', methods=['POST'])
+def delete_staff():
+    """Permanently remove a staff member with no logged hours."""
+    return_to = (request.form.get('return_to') or '').strip() or None
     cleaner_id = request.form.get('cleaner_id')
     if not cleaner_id:
         flash('Invalid request', 'error')
-        return redirect(url_for('index'))
+        return redirect_after_staff_form(return_to)
+
+    try:
+        cleaner_id = int(cleaner_id)
+        cleaner = get_cleaner_for_owner(cleaner_id)
+        if not cleaner:
+            flash('Staff member not found', 'error')
+            return redirect_after_staff_form(return_to)
+
+        log_count = TimeLog.query.filter_by(cleaner_id=cleaner.id).count()
+        if log_count > 0:
+            flash(
+                f'Cannot permanently delete "{cleaner.name}" — they have {log_count} logged '
+                'entries. Archive them instead.',
+                'error',
+            )
+            return redirect_after_staff_form(return_to)
+
+        name = cleaner.name
+        db.session.delete(cleaner)
+        db.session.commit()
+        flash(f'Permanently removed "{name}".', 'success')
+    except (ValueError, TypeError):
+        flash('Invalid request', 'error')
+    except Exception:
+        db.session.rollback()
+        flash('Error removing staff member', 'error')
+
+    return redirect_after_staff_form(return_to)
+
+
+@app.route('/archive-cleaner', methods=['POST'])
+def archive_cleaner():
+    """Archive a FOH staff member from hours (they won't appear for new shifts; past hours kept)."""
+    return_to = (request.form.get('return_to') or '').strip() or None
+    cleaner_id = request.form.get('cleaner_id')
+    if not cleaner_id:
+        flash('Invalid request', 'error')
+        return redirect_after_staff_form(return_to)
     try:
         cid = int(cleaner_id)
         cleaner = get_cleaner_for_owner(cid)
         if not cleaner:
             flash('Staff member not found', 'error')
-            return redirect(url_for('index'))
+            return redirect_after_staff_form(return_to)
         cleaner.active = False
         db.session.commit()
-        flash(f'"{cleaner.name}" has been archived from hours. They will not appear when logging new shifts; past hours are unchanged.', 'success')
+        flash(f'"{cleaner.name}" has been removed from payroll. Past hours are unchanged.', 'success')
     except (ValueError, TypeError):
         flash('Invalid request', 'error')
     except Exception:
         db.session.rollback()
         flash('Error archiving staff', 'error')
-    return redirect(url_for('index'))
+    return redirect_after_staff_form(return_to)
 
 
 @app.route('/restore-cleaner', methods=['POST'])
 def restore_cleaner():
     """Restore an archived FOH staff member so they can receive new shifts again."""
+    return_to = (request.form.get('return_to') or '').strip() or None
     cleaner_id = request.form.get('cleaner_id')
     if not cleaner_id:
         flash('Invalid request', 'error')
-        return redirect(url_for('index'))
+        return redirect_after_staff_form(return_to)
     try:
         cid = int(cleaner_id)
         cleaner = get_cleaner_for_owner(cid)
         if not cleaner:
             flash('Staff member not found', 'error')
-            return redirect(url_for('index'))
+            return redirect_after_staff_form(return_to)
         cleaner.active = True
         db.session.commit()
-        flash(f'"{cleaner.name}" has been restored. They will appear when logging shifts again.', 'success')
+        flash(f'"{cleaner.name}" has been restored to payroll.', 'success')
     except (ValueError, TypeError):
         flash('Invalid request', 'error')
     except Exception:
         db.session.rollback()
         flash('Error restoring staff', 'error')
-    return redirect(url_for('index'))
+    return redirect_after_staff_form(return_to)
 
 
 def _index_redirect_kwargs(roster_assign_week: str | None = None, assign_staff_id: int | None = None) -> dict:
@@ -3041,19 +3463,20 @@ def add_staff():
     raw_rate_type = request.form.get('rate_type')
     rate_amount_raw = request.form.get('rate_amount')
     roster_assign_week = (request.form.get('roster_assign_week') or '').strip() or None
+    return_to = (request.form.get('return_to') or '').strip() or None
     
     category = resolve_staff_category_from_form(category_field, new_category_field)
     if not name or not category or not rate_amount_raw:
         flash('Please fill in all required fields', 'error')
-        return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+        return redirect_after_staff_form(return_to, roster_assign_week)
     
     if category_field == '__new__' and not normalize_category_name(new_category_field):
         flash('Please enter a name for the new category', 'error')
-        return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+        return redirect_after_staff_form(return_to, roster_assign_week)
     
     if raw_rate_type not in ['hourly', 'daily', 'monthly']:
         flash('Invalid rate type selected', 'error')
-        return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+        return redirect_after_staff_form(return_to, roster_assign_week)
     
     try:
         rate_type = normalize_rate_type(raw_rate_type)
@@ -3061,10 +3484,10 @@ def add_staff():
         flat_monthly = request.form.get('flat_monthly') == 'on'
         if rate_amount <= 0:
             flash('Rate amount must be greater than zero', 'error')
-            return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+            return redirect_after_staff_form(return_to, roster_assign_week)
         if flat_monthly and rate_type != 'monthly':
             flash('Flat rate only applies to monthly staff', 'error')
-            return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+            return redirect_after_staff_form(return_to, roster_assign_week)
 
         # Check if staff member already exists
         owner_id = get_current_owner_id()
@@ -3075,12 +3498,19 @@ def add_staff():
         existing = cleaners_query().filter_by(name=name).first()
         if existing:
             flash(f'Staff member "{name}" already exists!', 'error')
-            return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+            return redirect_after_staff_form(return_to, roster_assign_week)
+
+        id_number = normalize_staff_id_number(request.form.get('id_number'))
+        duplicate_id = find_duplicate_staff_id_number(id_number)
+        if duplicate_id:
+            flash(f'ID number "{id_number}" is already assigned to "{duplicate_id.name}".', 'error')
+            return redirect_after_staff_form(return_to, roster_assign_week)
         
         # Create new staff member
         new_cleaner = Cleaner(
             owner_id=owner_id,
             name=name,
+            id_number=id_number,
             category=category,
             rate_type=rate_type,
             rate_amount=rate_amount,
@@ -3098,6 +3528,8 @@ def add_staff():
             roster_assign_week=roster_assign_week,
             assign_staff_id=new_cleaner.id if roster_assign_week else None,
         )
+        if return_to == 'staff':
+            return redirect(url_for('staff_payroll'))
         return redirect(url_for('index', **redirect_kwargs))
         
     except (ValueError, TypeError):
@@ -3106,7 +3538,7 @@ def add_staff():
         flash('Error adding staff member', 'error')
         db.session.rollback()
     
-    return redirect(url_for('index', **_index_redirect_kwargs(roster_assign_week)))
+    return redirect_after_staff_form(return_to, roster_assign_week)
 
 @app.route('/clear-db', methods=['POST'])
 def clear_db():
