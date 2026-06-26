@@ -407,6 +407,25 @@ def sort_display_categories(category_names) -> list:
     return order
 
 
+def get_display_category_filter_options() -> list:
+    """Return display category groups available for log filters."""
+    groups = {resolve_display_group(category) for category in get_all_staff_categories()}
+    has_uncategorized = cleaners_query().filter(
+        db.or_(Cleaner.category.is_(None), Cleaner.category == '')
+    ).count() > 0
+    if has_uncategorized:
+        groups.add("Uncategorized")
+    return sort_display_categories(groups)
+
+
+def _parse_category_filter(value: str | None) -> str | None:
+    """Parse a display category filter from query params."""
+    if not value:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
 def resolve_staff_category_from_form(category_field: str, new_category_field: str) -> str | None:
     """Resolve the category submitted from the add-staff form."""
     if category_field == '__new__':
@@ -936,8 +955,15 @@ def build_staff_invoice_data(cleaner: "Cleaner", date_from: date, date_to: date)
         'rate_type': normalize_rate_type(rate_type)
     }
 
-def _filter_timelog_query(query, filter_year=None, filter_month=None, date_from=None, date_to=None):
-    """Apply year/month or custom date range filters to a TimeLog query."""
+def _filter_timelog_query(
+    query,
+    filter_year=None,
+    filter_month=None,
+    date_from=None,
+    date_to=None,
+    filter_category=None,
+):
+    """Apply year/month, custom date range, and category filters to a TimeLog query."""
     if date_from is not None or date_to is not None:
         if date_from is not None:
             query = query.filter(TimeLog.date >= date_from)
@@ -954,6 +980,15 @@ def _filter_timelog_query(query, filter_year=None, filter_month=None, date_from=
         query = query.filter(TimeLog.date >= start_date, TimeLog.date <= end_date)
     elif filter_month is not None:
         query = query.filter(db.func.strftime('%m', TimeLog.date) == f"{filter_month:02d}")
+
+    if filter_category:
+        if filter_category == "Uncategorized":
+            query = query.filter(db.or_(Cleaner.category.is_(None), Cleaner.category == ''))
+        elif filter_category in DISPLAY_CATEGORY_GROUPS:
+            query = query.filter(Cleaner.category.in_(DISPLAY_CATEGORY_GROUPS[filter_category]))
+        else:
+            query = query.filter(Cleaner.category == filter_category)
+
     return query
 
 
@@ -1576,9 +1611,23 @@ def get_monthly_totals_with_details():
     
     return monthly_data
 
-def get_monthly_totals_by_category():
+def get_monthly_totals_by_category(
+    filter_year=None,
+    filter_month=None,
+    date_from=None,
+    date_to=None,
+    filter_category=None,
+):
     """Group monthly totals by category with individual log details."""
-    logs = timelogs_query().order_by(TimeLog.date.desc()).all()
+    query = _filter_timelog_query(
+        timelogs_query(),
+        filter_year=filter_year,
+        filter_month=filter_month,
+        date_from=date_from,
+        date_to=date_to,
+        filter_category=filter_category,
+    )
+    logs = query.order_by(TimeLog.date.desc(), TimeLog.created_at.desc()).all()
     category_data = {}
 
     for log in logs:
@@ -1700,6 +1749,30 @@ def get_week_start(reference: date | None = None) -> date:
     """Return the Monday on or before the given date (defaults to today)."""
     reference = reference or date.today()
     return reference - timedelta(days=reference.weekday())
+
+
+def get_current_week_range(reference: date | None = None) -> tuple[date, date]:
+    """Return Monday and Sunday for the week containing reference (default today)."""
+    week_start = get_week_start(reference)
+    return week_start, week_start + timedelta(days=6)
+
+
+def _resolve_week_filter_params(args, allow_show_all: bool = False):
+    """Parse date filters; default to the current Mon–Sun week."""
+    if allow_show_all and args.get('all') == '1':
+        return None, None, None, None, False, True
+
+    filter_date_from = _parse_date_arg(args.get('date_from'))
+    filter_date_to = _parse_date_arg(args.get('date_to'))
+    has_explicit = any(key in args for key in ('year', 'month', 'date_from', 'date_to'))
+
+    if not has_explicit:
+        week_start, week_end = get_current_week_range()
+        return None, None, week_start, week_end, True, False
+
+    filter_year = args.get('year', type=int)
+    filter_month = args.get('month', type=int)
+    return filter_year, filter_month, filter_date_from, filter_date_to, False, False
 
 
 def parse_week_start_param(raw_week: str | None, fallback: date | None = None) -> date:
@@ -1984,7 +2057,13 @@ def build_shift_roster_bootstrap_data(
     }
 
 
-def get_logs_by_staff_and_date(filter_year=None, filter_month=None, date_from=None, date_to=None):
+def get_logs_by_staff_and_date(
+    filter_year=None,
+    filter_month=None,
+    date_from=None,
+    date_to=None,
+    filter_category=None,
+):
     """Group logs by staff member, showing dates they worked. 
     Returns a dictionary with cleaner_id -> {name, category, dates: [list of date objects]}."""
     query = _filter_timelog_query(
@@ -1993,6 +2072,7 @@ def get_logs_by_staff_and_date(filter_year=None, filter_month=None, date_from=No
         filter_month=filter_month,
         date_from=date_from,
         date_to=date_to,
+        filter_category=filter_category,
     )
     logs = query.all()
     staff_data = {}
@@ -2018,13 +2098,20 @@ def get_logs_by_staff_and_date(filter_year=None, filter_month=None, date_from=No
     
     return staff_data
 
-def get_staff_by_category_with_dates(filter_year=None, filter_month=None, date_from=None, date_to=None):
+def get_staff_by_category_with_dates(
+    filter_year=None,
+    filter_month=None,
+    date_from=None,
+    date_to=None,
+    filter_category=None,
+):
     """Group staff members by category with their dates."""
     staff_data = get_logs_by_staff_and_date(
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=date_from,
         date_to=date_to,
+        filter_category=filter_category,
     )
     grouped = {}
 
@@ -2042,7 +2129,13 @@ def get_staff_by_category_with_dates(filter_year=None, filter_month=None, date_f
             ordered[group_name] = grouped[group_name]
     return ordered
 
-def get_staff_by_date(filter_year=None, filter_month=None, date_from=None, date_to=None):
+def get_staff_by_date(
+    filter_year=None,
+    filter_month=None,
+    date_from=None,
+    date_to=None,
+    filter_category=None,
+):
     """Group logs by date, showing which staff members worked on each date."""
     query = _filter_timelog_query(
         timelogs_query().order_by(TimeLog.date.desc()),
@@ -2050,6 +2143,7 @@ def get_staff_by_date(filter_year=None, filter_month=None, date_from=None, date_
         filter_month=filter_month,
         date_from=date_from,
         date_to=date_to,
+        filter_category=filter_category,
     )
     logs = query.all()
     date_data = {}
@@ -2466,13 +2560,33 @@ def index():
 @app.route('/manage')
 def manage_logs():
     """Detailed log management with edit and delete."""
+    (
+        filter_year,
+        filter_month,
+        filter_date_from,
+        filter_date_to,
+        using_default_filter,
+        show_all,
+    ) = _resolve_week_filter_params(request.args, allow_show_all=True)
+    filter_category = _parse_category_filter(request.args.get('category'))
+
     cleaners_by_category = get_cleaners_by_category(active_only=True)
     archived_by_category = get_cleaners_by_category(active_only=False, archived_only=True)
     has_archived = any(cleaners for cleaners in archived_by_category.values() if cleaners)
     cleaners_by_category_all = get_cleaners_by_category(active_only=False)
-    monthly_data_by_category = get_monthly_totals_by_category()
+    monthly_data_by_category = get_monthly_totals_by_category(
+        filter_year=filter_year,
+        filter_month=filter_month,
+        date_from=filter_date_from,
+        date_to=filter_date_to,
+        filter_category=filter_category,
+    )
     all_cleaners = cleaners_query().order_by(Cleaner.name).all()
     display_categories = sort_display_categories(monthly_data_by_category.keys())
+    if filter_category:
+        display_categories = [filter_category]
+    years, months = get_tenant_log_year_month_options()
+    today = date.today()
     return render_template(
         'manage_logs.html',
         cleaners_by_category=cleaners_by_category,
@@ -2483,6 +2597,18 @@ def manage_logs():
         display_categories=display_categories,
         staff_categories=get_all_staff_categories(),
         all_cleaners=all_cleaners,
+        filter_year=filter_year,
+        filter_month=filter_month,
+        filter_date_from=filter_date_from,
+        filter_date_to=filter_date_to,
+        filter_category=filter_category,
+        category_filter_options=get_display_category_filter_options(),
+        has_filter=not show_all or bool(filter_category),
+        using_default_filter=using_default_filter,
+        show_all=show_all,
+        available_years=years,
+        available_months=months,
+        today=today,
     )
 
 
@@ -2786,8 +2912,8 @@ def delete_log():
 @app.route('/weekly')
 def weekly_totals():
     """Show weekly totals per cleaner."""
-    filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter = (
-        _resolve_monthly_filter_params(request.args)
+    filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter, _ = (
+        _resolve_week_filter_params(request.args)
     )
 
     weekly_data, category_totals = get_weekly_totals(
@@ -3172,20 +3298,25 @@ def by_date_view():
     filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter = (
         _resolve_monthly_filter_params(request.args)
     )
+    filter_category = _parse_category_filter(request.args.get('category'))
 
     staff_by_category = get_staff_by_category_with_dates(
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=filter_date_from,
         date_to=filter_date_to,
+        filter_category=filter_category,
     )
     date_data = get_staff_by_date(
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=filter_date_from,
         date_to=filter_date_to,
+        filter_category=filter_category,
     )
     display_categories = sort_display_categories(staff_by_category.keys())
+    if filter_category:
+        display_categories = [filter_category]
 
     years, months = get_tenant_log_year_month_options()
 
@@ -3198,6 +3329,8 @@ def by_date_view():
         filter_month=filter_month,
         filter_date_from=filter_date_from,
         filter_date_to=filter_date_to,
+        filter_category=filter_category,
+        category_filter_options=get_display_category_filter_options(),
         using_default_filter=using_default_filter,
         available_years=years,
         available_months=months,

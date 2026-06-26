@@ -139,9 +139,9 @@
             </div>
             <div class="card-body">
                 <!-- Filter Form -->
-                <form method="GET" action="{{ url_for('weekly_totals') }}" class="mb-4" id="weekly-filter-form">
+                <form method="GET" action="{{ url_for('weekly_totals') }}" class="mb-4 log-filter-form" id="weekly-filter-form">
                     <div class="row g-3 align-items-end">
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="year" class="form-label">Year</label>
                             <select class="form-select" id="year" name="year" onchange="this.form.submit()">
                                 <option value="">All Years</option>
@@ -150,27 +150,28 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="month" class="form-label">Month</label>
                             <select class="form-select" id="month" name="month" onchange="this.form.submit()">
                                 <option value="">All Months</option>
                                 {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                                {% set month_names_short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
                                 {% for month_num in available_months %}
-                                <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names[month_num] }}</option>
+                                <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names_short[month_num] }}</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="date_from" class="form-label">From date</label>
                             <input type="date" class="form-control" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() if filter_date_from else '' }}" onchange="this.form.submit()">
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="date_to" class="form-label">To date</label>
                             <input type="date" class="form-control" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() if filter_date_to else '' }}" onchange="this.form.submit()">
                         </div>
-                        <div class="col-md-2 d-flex align-items-end">
-                            <a href="{{ url_for('weekly_totals') }}" class="btn btn-secondary" title="Reset to the current month">
-                                <i class="fas fa-calendar-day me-2"></i>Current Month
+                        <div class="col-12 col-lg-6 col-xl-2 d-flex align-items-end filter-actions">
+                            <a href="{{ url_for('weekly_totals') }}" class="btn btn-secondary filter-action-btn" title="Reset to the current week">
+                                <i class="fas fa-calendar-week me-2"></i>Current Week
                             </a>
                         </div>
                     </div>
@@ -184,6 +185,7 @@
                         Showing logs
                         {% if filter_date_from and filter_date_to %}
                             from {{ filter_date_from.strftime('%d %b %Y') }} to {{ filter_date_to.strftime('%d %b %Y') }}
+                            {% if using_default_filter %}<span class="text-muted">(current week)</span>{% endif %}
                         {% elif filter_date_from %}
                             from {{ filter_date_from.strftime('%d %b %Y') }} onward
                         {% else %}

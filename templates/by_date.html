@@ -18,9 +18,9 @@
                 </a>
             </div>
             <div class="card-body">
-                <form method="GET" action="{{ url_for('by_date_view') }}" class="mb-4" id="by-date-filter-form">
+                <form method="GET" action="{{ url_for('by_date_view') }}" class="mb-4 log-filter-form" id="by-date-filter-form">
                     <div class="row g-3 align-items-end">
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="year" class="form-label">Year</label>
                             <select class="form-select" id="year" name="year" onchange="this.form.submit()">
                                 <option value="">All Years</option>
@@ -29,21 +29,31 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="month" class="form-label">Month</label>
                             <select class="form-select" id="month" name="month" onchange="this.form.submit()">
                                 <option value="">All Months</option>
                                 {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                                {% set month_names_short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
                                 {% for month_num in available_months %}
-                                <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names[month_num] }}</option>
+                                <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names_short[month_num] }}</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
+                            <label for="category" class="form-label">Category</label>
+                            <select class="form-select" id="category" name="category" onchange="this.form.submit()">
+                                <option value="">All Categories</option>
+                                {% for category_name in category_filter_options %}
+                                <option value="{{ category_name }}" {% if filter_category == category_name %}selected{% endif %}>{{ category_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="date_from" class="form-label">From date</label>
                             <input type="date" class="form-control" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() if filter_date_from else '' }}" onchange="this.form.submit()">
                         </div>
-                        <div class="col-md-2">
+                        <div class="col-12 col-lg-6 col-xl-2">
                             <label for="date_to" class="form-label">To date</label>
                             <input type="date" class="form-control" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() if filter_date_to else '' }}" onchange="this.form.submit()">
                         </div>
@@ -55,10 +65,14 @@
                     </div>
                 </form>
 
-                {% if filter_year or filter_month or filter_date_from or filter_date_to %}
+                {% if filter_year or filter_month or filter_date_from or filter_date_to or filter_category %}
                 <div class="alert alert-info mb-3">
                     <i class="fas fa-filter me-2"></i>
                     <strong>Filtered:</strong>
+                    {% if filter_category %}
+                        Category: <strong>{{ filter_category }}</strong>
+                        {% if filter_date_from or filter_date_to or filter_year or filter_month %} · {% endif %}
+                    {% endif %}
                     {% if filter_date_from or filter_date_to %}
                         {% if filter_date_from and filter_date_to and filter_date_from == filter_date_to %}
                         Showing logs for {{ filter_date_from.strftime('%d %b %Y') }}
@@ -88,7 +102,7 @@
                             {% set category_staff = staff_by_category.get(category_name, {}) %}
                             
                             {% if category_staff %}
-                            <div class="col-md-3 mb-4">
+                            <div class="col-12 col-lg-6 col-xl-3 mb-4">
                                 <div class="card h-100">
                                     <div class="card-header bg-primary text-white">
                                         <h6 class="card-title mb-0">

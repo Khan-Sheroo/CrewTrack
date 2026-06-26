@@ -70,6 +70,60 @@
             color: white;
             border-color: #0d6efd;
         }
+        /* Filter toolbars: stack on small screens, no horizontal overflow */
+        .log-filter-form,
+        #wage-compare-form {
+            max-width: 100%;
+        }
+        .log-filter-form > .row,
+        #wage-compare-form > .row {
+            margin-left: 0;
+            margin-right: 0;
+        }
+        .log-filter-form > .row > [class*="col-"],
+        #wage-compare-form > .row > [class*="col-"] {
+            min-width: 0;
+            padding-left: calc(var(--bs-gutter-x) * 0.5);
+            padding-right: calc(var(--bs-gutter-x) * 0.5);
+        }
+        .log-filter-form .form-select,
+        .log-filter-form .form-control,
+        #wage-compare-form .form-select {
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .compare-select-wrap {
+            max-width: 100%;
+            overflow: hidden;
+        }
+        .log-filter-form input[type="date"],
+        .log-filter-form input[type="time"] {
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            min-width: 0;
+        }
+        @media (max-width: 991.98px) {
+            .log-filter-form .filter-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .log-filter-form .filter-action-btn,
+            #wage-compare-form .btn {
+                width: 100%;
+            }
+        }
+        .card-header-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        html,
+        body {
+            max-width: 100%;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
