@@ -605,9 +605,9 @@ def format_hourly_rate_label(
     """Format an hourly rate, optionally including premium rates."""
     extras = []
     if include_sunday_rate:
-        extras.append(f"Sun R{round(rate_amount * SUNDAY_HOURLY_MULTIPLIER, 2):.2f}/hr")
+        extras.append(f"Sun {format_money(rate_amount * SUNDAY_HOURLY_MULTIPLIER)}/hr")
     if include_public_holiday_rate:
-        extras.append(f"PH R{round(rate_amount * PUBLIC_HOLIDAY_HOURLY_MULTIPLIER, 2):.2f}/hr")
+        extras.append(f"PH {format_money(rate_amount * PUBLIC_HOLIDAY_HOURLY_MULTIPLIER)}/hr")
     base_label = format_rate_label('hourly', rate_amount)
     if extras:
         return f"{base_label} ({', '.join(extras)})"
@@ -790,6 +790,72 @@ def is_flat_monthly(cleaner: "Cleaner") -> bool:
     return normalize_rate_type(cleaner.rate_type) == 'monthly' and bool(cleaner.flat_monthly)
 
 
+BASE_CURRENCY = 'ZAR'
+CURRENCIES = {
+    'ZAR': {'label': 'South African Rand', 'short': 'Rand', 'symbol': 'R'},
+    'USD': {'label': 'US Dollar', 'short': 'USD', 'symbol': '$'},
+    'GBP': {'label': 'British Pound', 'short': 'GBP', 'symbol': '£'},
+    'EUR': {'label': 'Euro', 'short': 'EUR', 'symbol': '€'},
+}
+
+
+def get_selected_currency_code() -> str:
+    """Return the active display currency for the current session."""
+    code = (session.get('currency') or BASE_CURRENCY).upper()
+    return code if code in CURRENCIES else BASE_CURRENCY
+
+
+def get_currency_config(currency_code: str | None = None) -> dict:
+    """Return metadata for a currency code."""
+    code = (currency_code or get_selected_currency_code()).upper()
+    if code not in CURRENCIES:
+        code = BASE_CURRENCY
+    return {**CURRENCIES[code], 'code': code}
+
+
+def get_currency_options() -> list[dict]:
+    """Return supported currencies for the navbar selector."""
+    order = ['ZAR', 'USD', 'GBP', 'EUR']
+    return [
+        {
+            'code': code,
+            'label': CURRENCIES[code]['label'],
+            'short': CURRENCIES[code]['short'],
+            'symbol': CURRENCIES[code]['symbol'],
+        }
+        for code in order
+    ]
+
+
+def format_money(amount: float | None, currency_code: str | None = None, signed: bool = False) -> str:
+    """Format an amount with the active currency symbol (no conversion)."""
+    if amount is None:
+        return '—'
+    value = float(amount)
+    sym = get_currency_config(currency_code)['symbol']
+    abs_val = abs(value)
+    body = f"{sym}{abs_val:.2f}"
+    if signed:
+        if value > 0:
+            return f"+{body}"
+        if value < 0:
+            return f"-{body}"
+    return body
+
+
+def parse_rate_amount_from_form(raw_value: str | None) -> float | None:
+    """Parse a rate amount from form input."""
+    if raw_value is None or raw_value == '':
+        return None
+    try:
+        amount = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if amount <= 0:
+        return None
+    return amount
+
+
 def format_rate_label(rate_type: str, rate_amount: float, flat_monthly: bool = False) -> str:
     """Format a configured rate for display."""
     normalized_rate_type = normalize_rate_type(rate_type)
@@ -798,7 +864,7 @@ def format_rate_label(rate_type: str, rate_amount: float, flat_monthly: bool = F
         'daily': '/day',
         'monthly': '/month flat' if flat_monthly else '/month'
     }[normalized_rate_type]
-    return f"R{rate_amount:.2f}{suffix}"
+    return f"{format_money(rate_amount)}{suffix}"
 
 
 def calculate_period_total(
@@ -864,10 +930,10 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
         multiplier = get_hourly_pay_multiplier(log.date)
         effective_rate = round(rate_amount * multiplier, 2)
         if is_sa_public_holiday(log.date):
-            rate_display = f"R{effective_rate:.2f}/hr (Public holiday 2x)"
+            rate_display = f"{format_money(effective_rate)}/hr (Public holiday 2x)"
             description = f"Public holiday time entry{f' ({time_window})' if time_window else ''}"
         elif is_sunday(log.date):
-            rate_display = f"R{effective_rate:.2f}/hr (Sun 1.5x)"
+            rate_display = f"{format_money(effective_rate)}/hr (Sun 1.5x)"
             description = f"Sunday time entry{f' ({time_window})' if time_window else ''}"
         else:
             rate_display = format_rate_label(rate_type, rate_amount)
@@ -895,7 +961,7 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
         quantity = 1.0
         days_in_month = get_rate_days_in_month(log.date)
         daily_equivalent = round(rate_amount / float(days_in_month), 2)
-        rate_display = f"R{daily_equivalent:.2f}/day from {format_rate_label(rate_type, rate_amount)}"
+        rate_display = f"{format_money(daily_equivalent)}/day from {format_rate_label(rate_type, rate_amount)}"
         line_total = daily_equivalent
         description = f"Worked day ({days_in_month}-day rule){f' ({time_window})' if time_window else ''}"
         quantity_display = "1 day"
@@ -2339,7 +2405,41 @@ def require_login():
 
 @app.context_processor
 def inject_current_user():
-    return {'current_user': get_current_user()}
+    currency = get_currency_config()
+    return {
+        'current_user': get_current_user(),
+        'currency_code': currency['code'],
+        'currency_symbol': currency['symbol'],
+        'currency_label': currency['label'],
+        'currency_options': get_currency_options(),
+        'format_money': format_money,
+        'format_rate_label': format_rate_label,
+    }
+
+
+@app.template_filter('money')
+def money_template_filter(amount):
+    return format_money(amount)
+
+
+@app.template_filter('money_signed')
+def money_signed_template_filter(amount):
+    return format_money(amount, signed=True)
+
+
+def _safe_next_url(raw: str | None) -> str:
+    if raw and raw.startswith('/') and not raw.startswith('//'):
+        return raw
+    return url_for('index')
+
+
+@app.route('/set-currency', methods=['POST'])
+def set_currency():
+    """Persist the global display currency for the current session."""
+    code = (request.form.get('currency') or '').upper()
+    if code in CURRENCIES:
+        session['currency'] = code
+    return redirect(_safe_next_url(request.form.get('next')))
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -3140,12 +3240,12 @@ def invoice_pdf():
                 Paragraph(item['description'], styles['BodyText']),
                 item['quantity_display'],
                 item['rate_display'],
-                f"R{item['amount']:.2f}"
+                format_money(item['amount'])
             ])
     else:
         table_data.append(['-', 'No logs found for this period', '-', '-', 'R0.00'])
 
-    table_data.append(['', '', '', 'Total', f"R{invoice_data['amount_total']:.2f}"])
+    table_data.append(['', '', '', 'Total', format_money(invoice_data['amount_total'])])
 
     table = Table(table_data, colWidths=[0.9 * inch, 3.7 * inch, 0.8 * inch, 1.3 * inch, 1.0 * inch])
     table.setStyle(TableStyle([
@@ -3240,7 +3340,7 @@ def monthly_totals_pdf():
                     str(month_data['entries']),
                     f"{month_data['hours']:.2f}",
                     month_data['rate_label'],
-                    f"R{month_data['total']:.2f}"
+                    format_money(month_data['total'])
                 ])
     
     # Create table
@@ -3412,9 +3512,9 @@ def update_staff():
             return redirect_after_staff_form(return_to)
 
         rate_type = normalize_rate_type(raw_rate_type)
-        rate_amount = float(rate_amount_raw)
+        rate_amount = parse_rate_amount_from_form(rate_amount_raw)
         flat_monthly = request.form.get('flat_monthly') == 'on'
-        if rate_amount <= 0:
+        if rate_amount is None:
             flash('Rate amount must be greater than zero', 'error')
             return redirect_after_staff_form(return_to)
         if flat_monthly and rate_type != 'monthly':
@@ -3613,9 +3713,9 @@ def add_staff():
     
     try:
         rate_type = normalize_rate_type(raw_rate_type)
-        rate_amount = float(rate_amount_raw)
+        rate_amount = parse_rate_amount_from_form(rate_amount_raw)
         flat_monthly = request.form.get('flat_monthly') == 'on'
-        if rate_amount <= 0:
+        if rate_amount is None:
             flash('Rate amount must be greater than zero', 'error')
             return redirect_after_staff_form(return_to, roster_assign_week)
         if flat_monthly and rate_type != 'monthly':

@@ -343,7 +343,7 @@
     <div class="col-6 col-md-6 col-xl text-center">
         <a href="#wage-bill-by-category" class="stat-card-link" title="View wage bill by category">
             <div class="card stat-card stat-card-circle wages mx-auto d-flex align-items-center justify-content-center">
-                <div class="stat-value stat-value-sm mb-0" style="color:#e67e22">R{{ "%.2f"|format(dashboard.wage_bill_this_month) }}</div>
+                <div class="stat-value stat-value-sm mb-0" style="color:#e67e22">{{ dashboard.wage_bill_this_month|money }}</div>
             </div>
         </a>
         <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Wage Bill ({{ dashboard.period_label }})</div>
@@ -580,24 +580,24 @@
                             <tr{% if row.is_grand_total %} class="grand-total-row"{% endif %}>
                                 <td class="category-col">{{ row.label }}</td>
                                 <td class="amount-col">
-                                    R{{ "%.2f"|format(row.amount_a) }}
+                                    {{ row.amount_a|money }}
                                     {% if row.amount_a > 0 and not row.is_grand_total %}
                                     <span class="text-muted fw-normal small">({{ "%.1f"|format(row.pct_a) }}%)</span>
                                     {% endif %}
                                 </td>
                                 <td class="amount-col">
-                                    R{{ "%.2f"|format(row.amount_b) }}
+                                    {{ row.amount_b|money }}
                                     {% if row.amount_b > 0 and not row.is_grand_total %}
                                     <span class="text-muted fw-normal small">({{ "%.1f"|format(row.pct_b) }}%)</span>
                                     {% endif %}
                                 </td>
                                 <td class="change-col">
                                     {% if row.change > 0 %}
-                                    <span class="text-success">+R{{ "%.2f"|format(row.change) }}</span>
+                                    <span class="text-success">{{ row.change|money_signed }}</span>
                                     {% elif row.change < 0 %}
-                                    <span class="text-danger">-R{{ "%.2f"|format(row.change|abs) }}</span>
+                                    <span class="text-danger">{{ row.change|money_signed }}</span>
                                     {% else %}
-                                    <span class="text-muted">R0.00</span>
+                                    <span class="text-muted">{{ 0|money }}</span>
                                     {% endif %}
                                     {% if row.change_pct is not none %}
                                     <span class="text-muted fw-normal small d-block">
@@ -696,7 +696,7 @@
                                     <span class="fw-semibold">{{ cleaner.name }}</span>
                                     {% if cleaner.rate_amount %}
                                     <small class="text-muted d-block">
-                                        R{{ "%.2f"|format(cleaner.rate_amount) }}/{{ 'hr' if cleaner.rate_type == 'hourly' else 'day' if cleaner.rate_type == 'daily' else 'mo' }}
+                                        {{ format_rate_label(cleaner.rate_type, cleaner.rate_amount, cleaner.flat_monthly) }}
                                     </small>
                                     {% endif %}
                                 </div>
@@ -782,7 +782,7 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="staff_rate_amount" class="form-label">Rate Amount</label>
+                        <label for="staff_rate_amount" class="form-label">Rate Amount ({{ currency_code }})</label>
                         <input type="number" class="form-control" id="staff_rate_amount" name="rate_amount" required min="0.01" step="0.01">
                     </div>
                     <div class="mb-3" id="flat_monthly_group">
@@ -864,7 +864,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     y: {
                         beginAtZero: true,
                         ticks: {
-                            callback: function(value) { return 'R' + value; }
+                            callback: function(value) {
+                                return formatMoney(Number(value) || 0);
+                            }
                         }
                     }
                 }
@@ -1172,7 +1174,7 @@ function initWeeklyShiftRoster() {
 
     function formatWeekPay(total) {
         if (total === null) return '—';
-        return 'R' + total.toFixed(2);
+        return formatMoney(total);
     }
 
     function parseLocalDate(iso) {

@@ -281,7 +281,7 @@
                                             <td class="entries-col">{{ ns.total_entries }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(ns.total_hours) }}</td>
                                             <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
-                                            <td class="total-col">R{{ "%.2f"|format(ns.total_pay) }}</td>
+                                            <td class="total-col">{{ ns.total_pay|money }}</td>
                                         </tr>
                                         {% for month_key, month_data in cleaner_data['months'].items() %}
                                         {% set year, month = month_key.split('-') %}
@@ -292,7 +292,7 @@
                                             <td class="entries-col">{{ month_data['entries'] }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(month_data['hours']) }}</td>
                                             <td class="rate-col">{{ month_data['rate_label'] }}</td>
-                                            <td class="total-col">R{{ "%.2f"|format(month_data['total']) }}</td>
+                                            <td class="total-col">{{ month_data['total']|money }}</td>
                                         </tr>
                                         {% endfor %}
                                     {% endfor %}
@@ -306,13 +306,13 @@
                                 <tr class="totals-row">
                                     <td class="staff-col" colspan="2">{{ row.label }}</td>
                                     <td colspan="4"></td>
-                                    <td class="total-col">R{{ "%.2f"|format(row.amount) }}{{ wage_share(row.amount) }}</td>
+                                    <td class="total-col">{{ row.amount|money }}{{ wage_share(row.amount) }}</td>
                                 </tr>
                                 {% endfor %}
                                 <tr class="grand-total-row">
                                     <td class="staff-col" colspan="2">Grand total</td>
                                     <td colspan="4"></td>
-                                    <td class="total-col">R{{ "%.2f"|format(category_totals.grand_total) }} <span class="fw-normal text-muted">(100%)</span></td>
+                                    <td class="total-col">{{ category_totals.grand_total|money }} <span class="fw-normal text-muted">(100%)</span></td>
                                 </tr>
                                 {% endif %}
                             </tbody>
@@ -494,7 +494,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 return sum + amount;
                             }, 0);
                             const pct = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
-                            return context.label + ': R' + value.toFixed(2) + ' (' + pct + '%)';
+                            return context.label + ': ' + formatMoney(value) + ' (' + pct + '%)';
                         }
                     }
                 }

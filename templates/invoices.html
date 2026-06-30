@@ -46,7 +46,7 @@
                                 <option value="">Select staff member...</option>
                                 {% for cleaner in cleaners %}
                                 <option value="{{ cleaner.id }}" {% if selected_cleaner_id == cleaner.id %}selected{% endif %}>
-                                    {{ cleaner.name }}{% if cleaner.rate_amount %} - R{{ "%.2f"|format(cleaner.rate_amount) }}/{{ 'hr' if cleaner.rate_type == 'hourly' else 'day' if cleaner.rate_type == 'daily' else 'month flat' if cleaner.flat_monthly else 'month' }}{% endif %}
+                                    {{ cleaner.name }}{% if cleaner.rate_amount %} - {{ format_rate_label(cleaner.rate_type, cleaner.rate_amount, cleaner.flat_monthly) }}{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
@@ -121,7 +121,7 @@
                     <div class="col-md-4">
                         <div class="border rounded p-3 bg-light">
                             <div class="text-muted small">Invoice Total</div>
-                            <div class="fs-5 fw-bold text-success">R{{ "%.2f"|format(invoice_data.amount_total) }}</div>
+                            <div class="fs-5 fw-bold text-success">{{ invoice_data.amount_total|money }}</div>
                         </div>
                     </div>
                 </div> -->
@@ -145,7 +145,7 @@
                                     <td>{{ item.description }}</td>
                                     <td>{{ item.quantity_display }}</td>
                                     <td>{{ item.rate_display }}</td>
-                                    <td class="fw-bold">R{{ "%.2f"|format(item.amount) }}</td>
+                                    <td class="fw-bold">{{ item.amount|money }}</td>
                                 </tr>
                                 {% endfor %}
                             {% else %}
@@ -157,7 +157,7 @@
                         <tfoot>
                             <tr class="table-light">
                                 <th colspan="4" class="text-end">Total</th>
-                                <th class="text-success">R{{ "%.2f"|format(invoice_data.amount_total) }}</th>
+                                <th class="text-success">{{ invoice_data.amount_total|money }}</th>
                             </tr>
                         </tfoot>
                     </table>
