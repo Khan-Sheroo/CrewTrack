@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'macros/log_filters.html' import filter_dropdown_header, filter_dropdown_footer, filter_period_summary %}
 
 {% block title %}Manage Logs - Cleaning Time Logger{% endblock %}
 
@@ -29,9 +30,15 @@
                 </div>
             </div>
             <div class="card-body">
-                <form method="GET" action="{{ url_for('manage_logs') }}" class="mb-4 log-filter-form" id="manage-logs-filter-form">
-                    <div class="row g-3 align-items-end">
-                        <div class="col-12 col-lg-6 col-xl-2">
+                {% set filter_summary %}
+                {% if has_filter %}
+                {{ filter_period_summary(filter_year, filter_month, filter_date_from, filter_date_to, filter_category, using_default_filter) }}
+                {% endif %}
+                {% endset %}
+                <form method="GET" action="{{ url_for('manage_logs') }}" class="log-filter-form" id="manage-logs-filter-form">
+                    {{ filter_dropdown_header('manage-logs-filter-menu', filter_summary|trim, 'Current week') }}
+                    <div class="vstack gap-2">
+                        <div>
                             <label for="year" class="form-label">Year</label>
                             <select class="form-select form-select-sm" id="year" name="year" onchange="this.form.submit()">
                                 <option value="">All Years</option>
@@ -40,9 +47,8 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
+                        <div>
                             <label for="month" class="form-label">Month</label>
-                            <div class="compare-select-wrap">
                             <select class="form-select form-select-sm" id="month" name="month" onchange="this.form.submit()">
                                 <option value="">All Months</option>
                                 {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
@@ -51,67 +57,35 @@
                                 <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names_short[month_num] }}</option>
                                 {% endfor %}
                             </select>
-                            </div>
                         </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
+                        <div>
                             <label for="category" class="form-label">Category</label>
-                            <div class="compare-select-wrap">
                             <select class="form-select form-select-sm" id="category" name="category" onchange="this.form.submit()">
                                 <option value="">All Categories</option>
                                 {% for category_name in category_filter_options %}
                                 <option value="{{ category_name }}" {% if filter_category == category_name %}selected{% endif %}>{{ category_name }}</option>
                                 {% endfor %}
                             </select>
-                            </div>
                         </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
+                        <div>
                             <label for="date_from" class="form-label">From date</label>
                             <input type="date" class="form-control form-control-sm" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() if filter_date_from else '' }}" onchange="this.form.submit()">
                         </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
+                        <div>
                             <label for="date_to" class="form-label">To date</label>
                             <input type="date" class="form-control form-control-sm" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() if filter_date_to else '' }}" onchange="this.form.submit()">
                         </div>
-                        <div class="col-12 col-lg-6 col-xl-2 d-flex align-items-end gap-2 flex-wrap filter-actions">
-                            <a href="{{ url_for('manage_logs', all=1, category=filter_category) if filter_category else url_for('manage_logs', all=1) }}" class="btn btn-secondary btn-sm filter-action-btn" title="Show all logs">
-                                <i class="fas fa-list me-1"></i>Show All
-                            </a>
-                            <a href="{{ url_for('manage_logs', category=filter_category) if filter_category else url_for('manage_logs') }}" class="btn btn-outline-secondary btn-sm filter-action-btn" title="Current week (Mon–Sun)">
-                                <i class="fas fa-calendar-week me-1"></i>Current Week
-                            </a>
-                        </div>
                     </div>
+                    <div class="filter-dropdown-actions">
+                        <a href="{{ url_for('manage_logs', all=1, category=filter_category) if filter_category else url_for('manage_logs', all=1) }}" class="btn btn-secondary btn-sm filter-action-btn" title="Show all logs">
+                            <i class="fas fa-list me-1"></i>Show All
+                        </a>
+                        <a href="{{ url_for('manage_logs', category=filter_category) if filter_category else url_for('manage_logs') }}" class="btn btn-outline-secondary btn-sm filter-action-btn" title="Current week (Mon–Sun)">
+                            <i class="fas fa-calendar-week me-1"></i>Current Week
+                        </a>
+                    </div>
+                    {{ filter_dropdown_footer() }}
                 </form>
-
-                {% if has_filter %}
-                <div class="alert alert-info mb-3 py-2">
-                    <i class="fas fa-filter me-2"></i>
-                    <strong>Filtered:</strong>
-                    {% if filter_category %}
-                        Category: <strong>{{ filter_category }}</strong>
-                        {% if filter_date_from or filter_date_to or filter_year or filter_month %} · {% endif %}
-                    {% endif %}
-                    {% if filter_date_from or filter_date_to %}
-                        Showing logs
-                        {% if filter_date_from and filter_date_to %}
-                            from {{ filter_date_from.strftime('%d %b %Y') }} to {{ filter_date_to.strftime('%d %b %Y') }}
-                            {% if using_default_filter %}<span class="text-muted">(current week)</span>{% endif %}
-                        {% elif filter_date_from %}
-                            from {{ filter_date_from.strftime('%d %b %Y') }} onward
-                        {% else %}
-                            up to {{ filter_date_to.strftime('%d %b %Y') }}
-                        {% endif %}
-                    {% elif filter_year and filter_month %}
-                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
-                        Showing logs for {{ month_names[filter_month] }} {{ filter_year }}
-                    {% elif filter_year %}
-                        Showing logs for year {{ filter_year }}
-                    {% elif filter_month %}
-                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
-                        Showing logs for {{ month_names[filter_month] }} (all years)
-                    {% endif %}
-                </div>
-                {% endif %}
 
                 {% if monthly_data_by_category %}
                     <div class="row">

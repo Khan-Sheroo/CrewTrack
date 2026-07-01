@@ -120,10 +120,131 @@
                 flex-direction: column;
                 align-items: stretch;
             }
+            .log-filter-form .filter-actions-inline {
+                flex-direction: row;
+                flex-wrap: nowrap;
+                align-items: center;
+            }
             .log-filter-form .filter-action-btn,
             #wage-compare-form .btn {
                 width: 100%;
             }
+            .log-filter-form .filter-actions-inline .filter-action-btn {
+                width: auto;
+            }
+        }
+        .log-filter-form .filter-actions-inline {
+            flex-wrap: nowrap;
+            align-items: center;
+        }
+        .log-filter-form .filter-summary-inline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            flex: 0 1 auto;
+            width: fit-content;
+            max-width: 100%;
+            margin: 0;
+            padding: 0.375rem 0.65rem;
+            font-size: 0.65rem;
+            line-height: 1.15;
+            white-space: normal;
+            color: #055160;
+            background-color: #cff4fc;
+            border: 1px solid #b6effb;
+            border-radius: 0.375rem;
+        }
+        .log-filter-form .filter-summary-inline .fa-filter {
+            font-size: 0.6rem;
+            flex-shrink: 0;
+        }
+        .filter-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .card-header .filter-toolbar {
+            margin-bottom: 0;
+        }
+        .filter-icon-btn {
+            width: 2.25rem;
+            height: 2.25rem;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            background: #fff;
+            color: #495057;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            line-height: 1;
+        }
+        .filter-icon-btn:hover,
+        .filter-icon-btn:focus,
+        .filter-icon-btn.show {
+            background: #f8f9fa;
+            border-color: #ced4da;
+            color: #212529;
+        }
+        .filter-icon-btn--active {
+            border-color: #3498db;
+            color: #3498db;
+            box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.15);
+        }
+        .filter-dropdown-menu {
+            width: min(18rem, calc(100vw - 2rem));
+            padding: 0.75rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+        }
+        .filter-dropdown-title {
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: #212529;
+            margin-bottom: 0.15rem;
+        }
+        .filter-dropdown-summary {
+            font-size: 0.75rem;
+            line-height: 1.35;
+            margin-bottom: 0.65rem;
+            padding-bottom: 0.65rem;
+            border-bottom: 1px solid #eee;
+        }
+        .filter-dropdown-summary .text-muted {
+            font-size: 0.72rem;
+        }
+        .filter-dropdown-fields .form-label {
+            font-size: 0.75rem;
+            margin-bottom: 0.2rem;
+            color: #6c757d;
+            font-weight: 500;
+        }
+        .filter-dropdown-fields .form-select,
+        .filter-dropdown-fields .form-control {
+            font-size: 0.8125rem;
+        }
+        .filter-dropdown-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid #eee;
+        }
+        .filter-dropdown-actions .btn {
+            flex: 1 1 auto;
+        }
+        .card-period-label {
+            font-size: 0.75rem;
+            font-weight: 400;
+            color: var(--bs-secondary-color, #6c757d);
+            line-height: 1.2;
+        }
+        .card-period-label .text-muted {
+            font-size: 0.7rem;
         }
         .card-header-toolbar {
             display: flex;

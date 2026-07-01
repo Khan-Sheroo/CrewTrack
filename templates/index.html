@@ -128,7 +128,6 @@
         min-width: 64px;
         font-weight: 600;
         font-size: 0.75rem;
-        color: #198754;
     }
     .shift-roster-table .day-head {
         font-size: 0.72rem;
@@ -159,14 +158,26 @@
         box-shadow: inset 0 0 0 1px rgb(65 105 225 / 50%);
     }
     .shift-day-cell.is-off,
-    .shift-day-cell.is-leave {
+    .shift-day-cell.is-leave,
+    .shift-day-cell.is-sick-leave,
+    .shift-day-cell.is-paid-leave {
         background-color: rgb(255 243 205 / 22%);
         box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
     }
     .shift-day-cell.is-off:hover,
-    .shift-day-cell.is-leave:hover {
+    .shift-day-cell.is-leave:hover,
+    .shift-day-cell.is-sick-leave:hover,
+    .shift-day-cell.is-paid-leave:hover {
         background-color: rgb(255 243 205 / 32%);
         box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
+    }
+    .shift-day-cell.is-sick-leave {
+        background-color: rgb(248 215 218 / 28%);
+        box-shadow: inset 0 0 0 1px rgb(220 53 69 / 35%);
+    }
+    .shift-day-cell.is-paid-leave {
+        background-color: rgb(209 231 221 / 28%);
+        box-shadow: inset 0 0 0 1px rgb(25 135 84 / 35%);
     }
     .shift-day-cell .shift-check {
         color: #198754;
@@ -197,27 +208,36 @@
     .shift-day-cell .shift-status-label.leave {
         color: #997404;
     }
+    .shift-day-cell .shift-status-label.sick-leave {
+        color: #b02a37;
+    }
+    .shift-day-cell .shift-status-label.paid-leave {
+        color: #146c43;
+    }
     .shift-drag-crumb {
         position: absolute;
-        right: 2px;
-        bottom: 2px;
-        width: 5px;
-        height: 5px;
-        border-radius: 50%;
+        right: 0;
+        bottom: 0;
+        width: 14px;
+        height: 14px;
+        clip-path: polygon(100% 0, 100% 100%, 0 100%);
         background: #6c757d;
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+        box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.35);
         cursor: grab;
         user-select: none;
-        opacity: 0.75;
+        opacity: 0.9;
         z-index: 1;
+        touch-action: none;
     }
     .shift-drag-crumb:hover {
         opacity: 1;
         background: #0d6efd;
-        transform: scale(1.15);
+        width: 16px;
+        height: 16px;
     }
     .shift-drag-crumb:active {
         cursor: grabbing;
+        background: #0a58ca;
     }
     .shift-day-cell.shift-drop-target {
         outline: 2px dashed #0d6efd;
@@ -225,6 +245,23 @@
     }
     .shift-roster-status {
         min-height: 1.25rem;
+    }
+    .shift-roster-table tfoot tr.shift-roster-grand-total-row td {
+        background-color: #e9ecef;
+        border-top: 2px solid #adb5bd;
+        vertical-align: middle;
+        padding: 0.25rem 0.35rem;
+        font-size: 0.75rem;
+    }
+    .shift-roster-table tfoot .shift-roster-grand-label {
+        text-align: right;
+        font-weight: 700;
+        color: #495057;
+        letter-spacing: 0.02em;
+    }
+    .shift-roster-table tfoot .shift-roster-grand-total {
+        font-weight: 700;
+        font-size: 0.78rem;
     }
     .shift-roster-table tr.shift-category-header td {
         background-color: #f8f9fa;
@@ -255,7 +292,6 @@
         min-width: 120px;
         font-weight: 600;
         font-size: 0.78rem;
-        color: #198754;
         padding-left: 0.35rem;
         padding-right: 0.35rem;
     }
@@ -280,9 +316,6 @@
     .wage-bill-table tr.grand-total-row .category-col {
         text-transform: uppercase;
         letter-spacing: 0.03em;
-    }
-    .wage-bill-table tr.grand-total-row .amount-col {
-        color: #146c43;
     }
     html {
         scroll-behavior: smooth;
@@ -441,6 +474,13 @@
                             </tr>
                         </thead>
                         <tbody id="shift-roster-body"></tbody>
+                        <tfoot id="shift-roster-foot">
+                            <tr class="shift-roster-grand-total-row">
+                                <td id="shift-roster-grand-label" colspan="8" class="shift-roster-grand-label">Expected wages (hourly &amp; daily only)</td>
+                                <td class="hours-col"></td>
+                                <td class="pay-col shift-roster-grand-total" id="shift-roster-grand-total">—</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
                 <div class="shift-roster-status small text-muted" id="shift-roster-status"></div>
@@ -458,9 +498,13 @@
             </div>
             <div class="modal-body">
                 <p class="small text-muted mb-3" id="shift-time-context"></p>
-                <div class="d-flex gap-2 mb-3">
+                <div class="d-flex gap-2 mb-2 flex-wrap">
                     <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" id="shift-set-off">Off</button>
-                    <button type="button" class="btn btn-sm btn-outline-warning flex-fill" id="shift-set-leave">On Leave</button>
+                    <button type="button" class="btn btn-sm btn-outline-warning flex-fill" id="shift-set-leave">Unpaid Leave</button>
+                </div>
+                <div class="d-flex gap-2 mb-3 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-danger flex-fill" id="shift-set-sick-leave">Sick Leave</button>
+                    <button type="button" class="btn btn-sm btn-outline-success flex-fill" id="shift-set-paid-leave">Paid Leave</button>
                 </div>
                 <div class="small text-muted text-uppercase fw-semibold mb-2">Shift times</div>
                 <div id="shift-time-fields">
@@ -904,6 +948,9 @@ function initWeeklyShiftRoster() {
     const shiftTimeClearBtn = document.getElementById('shift-time-clear');
     const shiftSetOffBtn = document.getElementById('shift-set-off');
     const shiftSetLeaveBtn = document.getElementById('shift-set-leave');
+    const shiftSetSickLeaveBtn = document.getElementById('shift-set-sick-leave');
+    const shiftSetPaidLeaveBtn = document.getElementById('shift-set-paid-leave');
+    const PAID_ABSENCE_HOURS = 8;
     if (!rosterBody) return;
 
     const shiftTimeModal = shiftTimeModalEl ? new bootstrap.Modal(shiftTimeModalEl) : null;
@@ -1010,6 +1057,14 @@ function initWeeklyShiftRoster() {
         return { status: 'leave', start: null, end: null };
     }
 
+    function sickLeaveDay() {
+        return { status: 'sick_leave', start: null, end: null };
+    }
+
+    function paidLeaveDay() {
+        return { status: 'paid_leave', start: null, end: null };
+    }
+
     function normalizeDay(day) {
         if (day === null || day === false || day === undefined) {
             return emptyDay();
@@ -1024,6 +1079,8 @@ function initWeeklyShiftRoster() {
         const status = day.status || (day.scheduled ? 'shift' : null);
         if (status === 'off') return offDay();
         if (status === 'leave') return leaveDay();
+        if (status === 'sick_leave') return sickLeaveDay();
+        if (status === 'paid_leave') return paidLeaveDay();
         if (status === 'shift') return shiftDay(day.start || null, day.end || null);
         return emptyDay();
     }
@@ -1045,6 +1102,8 @@ function initWeeklyShiftRoster() {
         if (slot.status === 'shift') className += ' is-scheduled';
         if (slot.status === 'off') className += ' is-off';
         if (slot.status === 'leave') className += ' is-leave';
+        if (slot.status === 'sick_leave') className += ' is-sick-leave';
+        if (slot.status === 'paid_leave') className += ' is-paid-leave';
         return className;
     }
 
@@ -1056,7 +1115,7 @@ function initWeeklyShiftRoster() {
     }
 
     function shiftDragCrumbHtml() {
-        return '<span class="shift-drag-crumb" draggable="true" title="Drag across days to copy shift"></span>';
+        return '<span class="shift-drag-crumb" draggable="true" title="Drag from corner tab to copy shift across days"></span>';
     }
 
     function cloneDaySlot(day) {
@@ -1064,6 +1123,8 @@ function initWeeklyShiftRoster() {
         if (!slot) return emptyDay();
         if (slot.status === 'off') return offDay();
         if (slot.status === 'leave') return leaveDay();
+        if (slot.status === 'sick_leave') return sickLeaveDay();
+        if (slot.status === 'paid_leave') return paidLeaveDay();
         return shiftDay(slot.start, slot.end);
     }
 
@@ -1075,7 +1136,13 @@ function initWeeklyShiftRoster() {
             return crumb + '<span class="shift-status-label off">Off</span>';
         }
         if (slot.status === 'leave') {
-            return crumb + '<span class="shift-status-label leave">Leave</span>';
+            return crumb + '<span class="shift-status-label leave">Unpaid</span>';
+        }
+        if (slot.status === 'sick_leave') {
+            return crumb + '<span class="shift-status-label sick-leave">Sick</span>';
+        }
+        if (slot.status === 'paid_leave') {
+            return crumb + '<span class="shift-status-label paid-leave">Paid Leave</span>';
         }
         if (slot.start && slot.end) {
             return crumb + '<span class="shift-time-label">' +
@@ -1157,7 +1224,18 @@ function initWeeklyShiftRoster() {
         let totalPay = 0;
         row.days.forEach(function(day, dayIndex) {
             const slot = normalizeDay(day);
-            if (!slot || slot.status !== 'shift') return;
+            if (!slot) return;
+
+            if (slot.status === 'sick_leave' || slot.status === 'paid_leave') {
+                if (rateType === 'daily') {
+                    totalPay += rateAmount;
+                } else if (rateType === 'hourly') {
+                    totalPay += PAID_ABSENCE_HOURS * rateAmount;
+                }
+                return;
+            }
+
+            if (slot.status !== 'shift') return;
 
             if (rateType === 'daily') {
                 totalPay += rateAmount;
@@ -1175,6 +1253,30 @@ function initWeeklyShiftRoster() {
     function formatWeekPay(total) {
         if (total === null) return '—';
         return formatMoney(total);
+    }
+
+    function calculateRosterWeekGrandTotal() {
+        let total = 0;
+        let hasPay = false;
+        rosterRows.forEach(function(row) {
+            const pay = calculateRowWeekPay(row);
+            if (pay != null) {
+                total += pay;
+                hasPay = true;
+            }
+        });
+        return hasPay ? Math.round(total * 100) / 100 : null;
+    }
+
+    function updateRosterGrandTotal() {
+        const labelCell = document.getElementById('shift-roster-grand-label');
+        const totalEl = document.getElementById('shift-roster-grand-total');
+        if (labelCell) {
+            labelCell.colSpan = weekDays.length + 1;
+        }
+        if (totalEl) {
+            totalEl.textContent = formatWeekPay(calculateRosterWeekGrandTotal());
+        }
     }
 
     function parseLocalDate(iso) {
@@ -1574,6 +1676,7 @@ function initWeeklyShiftRoster() {
         html += '<th class="pay-col">Pay</th>';
         headerRow.innerHTML = html;
         weekLabel.textContent = formatWeekRange(currentWeekStart);
+        updateRosterGrandTotal();
     }
 
     function renderRows() {
@@ -1591,6 +1694,7 @@ function initWeeklyShiftRoster() {
             }
             appendStaffRow(row, rowIndex);
         });
+        updateRosterGrandTotal();
     }
 
     function render() {
@@ -1659,6 +1763,10 @@ function initWeeklyShiftRoster() {
             if (shiftSetOffBtn) shiftSetOffBtn.focus();
         } else if (slot && slot.status === 'leave') {
             if (shiftSetLeaveBtn) shiftSetLeaveBtn.focus();
+        } else if (slot && slot.status === 'sick_leave') {
+            if (shiftSetSickLeaveBtn) shiftSetSickLeaveBtn.focus();
+        } else if (slot && slot.status === 'paid_leave') {
+            if (shiftSetPaidLeaveBtn) shiftSetPaidLeaveBtn.focus();
         } else {
             shiftStartInput.focus();
         }
@@ -1735,7 +1843,9 @@ function initWeeklyShiftRoster() {
         const slot = normalizeDay(day);
         if (!slot) return '';
         if (slot.status === 'off') return 'Off';
-        if (slot.status === 'leave') return 'Leave';
+        if (slot.status === 'leave') return 'Unpaid Leave';
+        if (slot.status === 'sick_leave') return 'Sick';
+        if (slot.status === 'paid_leave') return 'Paid Leave';
         if (slot.start && slot.end) {
             return formatTimeLabel(slot.start) + '–' + formatTimeLabel(slot.end);
         }
@@ -1747,6 +1857,8 @@ function initWeeklyShiftRoster() {
         if (!slot) return '';
         if (slot.status === 'off') return 'background:#eee;color:#000;';
         if (slot.status === 'leave') return 'background:#f5f5f5;color:#000;';
+        if (slot.status === 'sick_leave') return 'background:#f8d7da;color:#000;';
+        if (slot.status === 'paid_leave') return 'background:#d1e7dd;color:#000;';
         return 'color:#000;';
     }
 
@@ -2100,6 +2212,18 @@ function initWeeklyShiftRoster() {
     if (shiftSetLeaveBtn) {
         shiftSetLeaveBtn.addEventListener('click', function() {
             applyQuickDayStatus(leaveDay());
+        });
+    }
+
+    if (shiftSetSickLeaveBtn) {
+        shiftSetSickLeaveBtn.addEventListener('click', function() {
+            applyQuickDayStatus(sickLeaveDay());
+        });
+    }
+
+    if (shiftSetPaidLeaveBtn) {
+        shiftSetPaidLeaveBtn.addEventListener('click', function() {
+            applyQuickDayStatus(paidLeaveDay());
         });
     }
 

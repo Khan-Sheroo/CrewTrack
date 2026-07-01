@@ -69,6 +69,7 @@ class TimeLog(db.Model):
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
     hours_worked = db.Column(db.Float, nullable=True)
+    entry_kind = db.Column(db.String(20), nullable=False, default='worked')
     notes = db.Column(db.Text)
     roster_week_start = db.Column(db.Date, nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -458,9 +459,61 @@ def calculate_hours_worked(start_time: time, end_time: time) -> float:
     return round(duration_hours, 2)
 
 
+SUNDAY_HOURLY_MULTIPLIER = 1.5
+PUBLIC_HOLIDAY_HOURLY_MULTIPLIER = 2.0
+PAID_ABSENCE_HOURS = 8.0
+PAID_ABSENCE_KINDS = frozenset({'sick_leave', 'paid_leave'})
+ABSENCE_KINDS = frozenset({'leave', 'sick_leave', 'paid_leave'})
+
+
 def get_log_hours(log: "TimeLog") -> float:
     """Return hours for a time entry, or 0 for shift entries."""
     return float(log.hours_worked or 0)
+
+
+def normalize_entry_kind(entry_kind: str | None) -> str:
+    """Return a normalized entry kind for pay and reporting."""
+    if entry_kind in ABSENCE_KINDS:
+        return entry_kind
+    return 'worked'
+
+
+def is_paid_absence_log(log: "TimeLog") -> bool:
+    """Return True when a log represents paid sick or paid leave."""
+    return normalize_entry_kind(getattr(log, 'entry_kind', None)) in PAID_ABSENCE_KINDS
+
+
+def is_unpaid_leave_log(log: "TimeLog") -> bool:
+    """Return True when a log represents unpaid leave."""
+    return normalize_entry_kind(getattr(log, 'entry_kind', None)) == 'leave'
+
+
+def add_paid_absence_to_bucket(bucket: dict, log: "TimeLog") -> None:
+    """Track paid absence days and pay hours without counting worked shifts/hours."""
+    if not is_paid_absence_log(log):
+        return
+    bucket['paid_absence_days'] = bucket.get('paid_absence_days', 0) + 1
+    bucket['paid_absence_regular_hours'] = (
+        bucket.get('paid_absence_regular_hours', 0.0) + PAID_ABSENCE_HOURS
+    )
+
+
+def accumulate_log_in_period_bucket(bucket: dict, log: "TimeLog") -> None:
+    """Add a log to weekly/monthly totals, separating absence from worked shifts."""
+    entry_kind = normalize_entry_kind(getattr(log, 'entry_kind', None))
+    if entry_kind == 'sick_leave':
+        add_paid_absence_to_bucket(bucket, log)
+        bucket['sick_leave_days'] = bucket.get('sick_leave_days', 0) + 1
+        return
+    if entry_kind == 'paid_leave':
+        add_paid_absence_to_bucket(bucket, log)
+        bucket['paid_leave_days'] = bucket.get('paid_leave_days', 0) + 1
+        return
+    if entry_kind == 'leave':
+        bucket['leave_days'] = bucket.get('leave_days', 0) + 1
+        return
+    bucket['entries'] += 1
+    add_tracked_hours_to_bucket(bucket, log)
 
 
 def get_tracked_hours_for_report(log: "TimeLog") -> float:
@@ -490,9 +543,6 @@ def add_tracked_hours_to_bucket(bucket: dict, log: "TimeLog") -> None:
     bucket['sunday_hours'] += sunday_hours
     bucket['public_holiday_hours'] += public_holiday_hours
 
-
-SUNDAY_HOURLY_MULTIPLIER = 1.5
-PUBLIC_HOLIDAY_HOURLY_MULTIPLIER = 2.0
 
 _SA_PUBLIC_HOLIDAY_CACHE: dict[int, set[date]] = {}
 
@@ -638,6 +688,10 @@ def ensure_time_log_schema() -> None:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN hours_worked FLOAT"))
     if 'roster_week_start' not in existing_columns:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN roster_week_start DATE"))
+    if 'entry_kind' not in existing_columns:
+        db.session.execute(
+            db.text("ALTER TABLE time_log ADD COLUMN entry_kind VARCHAR(20) NOT NULL DEFAULT 'worked'")
+        )
 
     db.session.commit()
 
@@ -875,12 +929,16 @@ def calculate_period_total(
     days_in_month: int,
     flat_monthly: bool = False,
     sunday_hours: float = 0.0,
-    public_holiday_hours: float = 0.0
+    public_holiday_hours: float = 0.0,
+    full_monthly_amount: bool = False,
+    paid_absence_days: int = 0,
+    paid_absence_regular_hours: float = 0.0,
 ) -> float:
     """Calculate total pay for a period from the cleaner's pay basis."""
     normalized_rate_type = normalize_rate_type(rate_type)
     if normalized_rate_type == 'hourly':
         regular_hours = round(hours_count - sunday_hours - public_holiday_hours, 2)
+        regular_hours += paid_absence_regular_hours
         return calculate_hourly_pay(
             regular_hours,
             sunday_hours,
@@ -888,10 +946,18 @@ def calculate_period_total(
             rate_amount
         )
     if normalized_rate_type == 'daily':
-        return round(entry_count * rate_amount, 2)
+        return round((entry_count + paid_absence_days) * rate_amount, 2)
+    absence_pay = paid_absence_days * (rate_amount / float(days_in_month))
     if flat_monthly:
-        return round(rate_amount, 2) if entry_count >= 1 else 0.0
-    return round(entry_count * (rate_amount / float(days_in_month)), 2)
+        if entry_count >= 1:
+            return round(rate_amount, 2)
+        if paid_absence_days >= 1:
+            return round(absence_pay, 2)
+        return 0.0
+    if full_monthly_amount:
+        base = round(rate_amount, 2) if entry_count >= 1 else 0.0
+        return round(base + absence_pay, 2)
+    return round(entry_count * (rate_amount / float(days_in_month)) + absence_pay, 2)
 
 
 def get_allowed_log_types_for_cleaner(cleaner: "Cleaner") -> frozenset:
@@ -924,6 +990,39 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
     time_window = None
     if log.start_time and log.end_time:
         time_window = f"{log.start_time.strftime('%H:%M')} - {log.end_time.strftime('%H:%M')}"
+
+    if is_paid_absence_log(log):
+        kind_label = 'Sick leave' if normalize_entry_kind(log.entry_kind) == 'sick_leave' else 'Paid leave'
+        if normalized_rate_type == 'hourly':
+            quantity = PAID_ABSENCE_HOURS
+            line_total = round(quantity * rate_amount, 2)
+            rate_display = format_rate_label(rate_type, rate_amount)
+            description = f"{kind_label} ({PAID_ABSENCE_HOURS:.0f} hrs paid)"
+            quantity_display = f"{quantity:.0f} hrs paid"
+        elif normalized_rate_type == 'daily':
+            quantity = 1.0
+            rate_display = format_rate_label(rate_type, rate_amount)
+            line_total = round(rate_amount, 2)
+            description = kind_label
+            quantity_display = "1 day paid"
+        else:
+            quantity = 1.0
+            days_in_month = get_rate_days_in_month(log.date)
+            daily_equivalent = round(rate_amount / float(days_in_month), 2)
+            rate_display = f"{format_money(daily_equivalent)}/day from {format_rate_label(rate_type, rate_amount)}"
+            line_total = daily_equivalent
+            description = kind_label
+            quantity_display = "1 day paid"
+        if log.notes:
+            description = f"{description} - {log.notes}"
+        return {
+            'date': log.date,
+            'description': description,
+            'quantity': quantity,
+            'quantity_display': quantity_display,
+            'rate_display': rate_display,
+            'amount': line_total,
+        }
 
     if normalized_rate_type == 'hourly':
         quantity = get_log_hours(log)
@@ -1058,6 +1157,30 @@ def _filter_timelog_query(
     return query
 
 
+def _sum_category_period_stats(staff_members, period_bucket_key):
+    """Aggregate shift, hour, leave, and pay totals for a category group."""
+    stats = {
+        'leave_days': 0,
+        'paid_leave_days': 0,
+        'sick_leave_days': 0,
+        'entries': 0,
+        'hours': 0.0,
+        'amount': 0.0,
+    }
+    for cleaner_data in staff_members.values():
+        for period_data in cleaner_data[period_bucket_key].values():
+            stats['leave_days'] += period_data.get('leave_days', 0)
+            stats['paid_leave_days'] += period_data.get('paid_leave_days', 0)
+            stats['sick_leave_days'] += period_data.get('sick_leave_days', 0)
+            stats['entries'] += period_data.get('entries', 0)
+            stats['hours'] += period_data.get('hours', 0)
+            total = period_data.get('total')
+            if total is not None:
+                stats['amount'] += total
+    stats['amount'] = round(stats['amount'], 2)
+    return stats
+
+
 def _calculate_category_totals(ordered_data, period_bucket_key):
     """Sum pay totals by report category from grouped staff period data."""
     category_totals = {
@@ -1075,7 +1198,9 @@ def _calculate_category_totals(ordered_data, period_bucket_key):
         category_total = 0.0
         for cleaner_data in staff_members.values():
             for period_data in cleaner_data[period_bucket_key].values():
-                category_total += period_data['total']
+                total = period_data.get('total')
+                if total is not None:
+                    category_total += total
 
         if category_name in ['Headbartenders', 'Bartenders']:
             category_totals['bartenders'] += category_total
@@ -1093,19 +1218,24 @@ def _calculate_category_totals(ordered_data, period_bucket_key):
         category_totals['grand_total'] += category_total
 
     category_totals['display_rows'] = []
+    grand_stats = {
+        'leave_days': 0,
+        'paid_leave_days': 0,
+        'sick_leave_days': 0,
+        'entries': 0,
+        'hours': 0.0,
+        'amount': 0.0,
+    }
     for category_name, staff_members in ordered_data.items():
-        category_total = round(
-            sum(
-                period_data['total']
-                for cleaner_data in staff_members.values()
-                for period_data in cleaner_data[period_bucket_key].values()
-            ),
-            2,
-        )
+        stats = _sum_category_period_stats(staff_members, period_bucket_key)
         category_totals['display_rows'].append({
             'label': category_name,
-            'amount': category_total,
+            **stats,
         })
+        for key in grand_stats:
+            grand_stats[key] += stats[key]
+    grand_stats['amount'] = round(grand_stats['amount'], 2)
+    category_totals['grand_stats'] = grand_stats
 
     return category_totals
 
@@ -1328,8 +1458,7 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                 'log_date': log.date  # Store first log date for rate calculation
             }
 
-        weekly_totals[cleaner_name]['weeks'][week_key]['entries'] += 1
-        add_tracked_hours_to_bucket(weekly_totals[cleaner_name]['weeks'][week_key], log)
+        accumulate_log_in_period_bucket(weekly_totals[cleaner_name]['weeks'][week_key], log)
         # Track month (avoid duplicates)
         if month not in weekly_totals[cleaner_name]['weeks'][week_key]['months']:
             weekly_totals[cleaner_name]['weeks'][week_key]['months'].append(month)
@@ -1354,9 +1483,10 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
             cleaner = cleaners_query().filter_by(name=cleaner_name).first()
             rate_type, rate_amount = get_cleaner_rate_config(cleaner, log_date) if cleaner else ('monthly', get_monthly_rate(cleaner_name, cleaner_category, log_date))
             flat_monthly = is_flat_monthly(cleaner) if cleaner else False
-            if flat_monthly:
-                week_total = 0.0
-                week_rate_label = f"{format_rate_label(rate_type, rate_amount, flat_monthly=True)} (see monthly)"
+            normalized_rate_type = normalize_rate_type(rate_type)
+            if normalized_rate_type == 'monthly':
+                week_total = None
+                week_rate_label = f"{format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)} (see monthly)"
             else:
                 week_total = calculate_period_total(
                     rate_type,
@@ -1365,9 +1495,11 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                     hours_count,
                     days_in_month,
                     sunday_hours=sunday_hours,
-                    public_holiday_hours=public_holiday_hours
+                    public_holiday_hours=public_holiday_hours,
+                    paid_absence_days=week_data.get('paid_absence_days', 0),
+                    paid_absence_regular_hours=week_data.get('paid_absence_regular_hours', 0.0),
                 )
-                if normalize_rate_type(rate_type) == 'hourly':
+                if normalized_rate_type == 'hourly':
                     week_rate_label = format_hourly_rate_label(
                         rate_amount,
                         include_sunday_rate=sunday_hours > 0,
@@ -1382,8 +1514,12 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
             cleaner_data['weeks'][week_key] = {
                 'entries': entry_count,
                 'hours': hours_count,
+                'leave_days': week_data.get('leave_days', 0),
+                'paid_leave_days': week_data.get('paid_leave_days', 0),
+                'sick_leave_days': week_data.get('sick_leave_days', 0),
                 'rate_label': week_rate_label,
-                'total': week_total
+                'total': week_total,
+                'paid_monthly': normalized_rate_type == 'monthly',
             }
 
         cleaner = cleaners_query().filter_by(name=cleaner_name).first()
@@ -1391,8 +1527,14 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
         if cleaner:
             rate_type, rate_amount = get_cleaner_rate_config(cleaner, rep_date)
             flat_monthly = is_flat_monthly(cleaner)
-            if normalize_rate_type(rate_type) == 'hourly':
+            normalized_rate_type = normalize_rate_type(rate_type)
+            cleaner_data['paid_monthly'] = normalized_rate_type == 'monthly'
+            if normalized_rate_type == 'hourly':
                 cleaner_data['rate_label'] = format_hourly_rate_label(rate_amount)
+            elif normalized_rate_type == 'monthly':
+                cleaner_data['rate_label'] = (
+                    f"{format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)} (see monthly)"
+                )
             else:
                 cleaner_data['rate_label'] = format_rate_label(
                     rate_type,
@@ -1400,6 +1542,7 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                     flat_monthly=flat_monthly,
                 )
         else:
+            cleaner_data['paid_monthly'] = False
             cleaner_data['rate_label'] = '—'
     
     # Group by category and sort, separating head bartenders
@@ -1504,8 +1647,7 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
                 'public_holiday_hours': 0.0
             }
 
-        monthly_totals[cleaner_id]['months'][month_key]['entries'] += 1
-        add_tracked_hours_to_bucket(monthly_totals[cleaner_id]['months'][month_key], log)
+        accumulate_log_in_period_bucket(monthly_totals[cleaner_id]['months'][month_key], log)
     
     # Calculate totals for each month with month-specific daily rates
     for cleaner_id, cleaner_data in monthly_totals.items():
@@ -1536,6 +1678,9 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
             cleaner_data['months'][month_key] = {
                 'entries': entry_count,
                 'hours': hours_count,
+                'leave_days': month_entry.get('leave_days', 0),
+                'paid_leave_days': month_entry.get('paid_leave_days', 0),
+                'sick_leave_days': month_entry.get('sick_leave_days', 0),
                 'sunday_hours': sunday_hours,
                 'public_holiday_hours': public_holiday_hours,
                 'rate_label': rate_label,
@@ -1547,7 +1692,10 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
                     days_in_month,
                     flat_monthly=flat_monthly,
                     sunday_hours=sunday_hours,
-                    public_holiday_hours=public_holiday_hours
+                    public_holiday_hours=public_holiday_hours,
+                    full_monthly_amount=True,
+                    paid_absence_days=month_entry.get('paid_absence_days', 0),
+                    paid_absence_regular_hours=month_entry.get('paid_absence_regular_hours', 0.0),
                 )
             }
 
@@ -1880,6 +2028,10 @@ def normalize_shift_day(raw_day) -> dict | None:
         return {'status': 'off', 'start': None, 'end': None}
     if status == 'leave':
         return {'status': 'leave', 'start': None, 'end': None}
+    if status == 'sick_leave':
+        return {'status': 'sick_leave', 'start': None, 'end': None}
+    if status == 'paid_leave':
+        return {'status': 'paid_leave', 'start': None, 'end': None}
     if status != 'shift':
         return None
 
@@ -1972,8 +2124,28 @@ def save_weekly_shift_roster(owner_id: int, week_start: date, rows: list[dict]) 
 
 
 def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
-    """Build time-log fields for a roster shift day, or None when no log should exist."""
-    if not day_slot or day_slot.get('status') != 'shift':
+    """Build time-log fields for a roster day, or None when no log should exist."""
+    if not day_slot:
+        return None
+
+    status = str(day_slot.get('status') or '').strip().lower()
+    if status == 'leave':
+        return {
+            'log_type': 'shift',
+            'entry_kind': 'leave',
+            'start_time': None,
+            'end_time': None,
+            'hours_worked': None,
+        }
+    if status in PAID_ABSENCE_KINDS:
+        return {
+            'log_type': 'shift',
+            'entry_kind': status,
+            'start_time': None,
+            'end_time': None,
+            'hours_worked': None,
+        }
+    if status != 'shift':
         return None
 
     start_time = parse_time_value(day_slot.get('start')) if day_slot.get('start') else None
@@ -1987,6 +2159,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
             return None
         return {
             'log_type': 'time',
+            'entry_kind': 'worked',
             'start_time': start_time,
             'end_time': end_time,
             'hours_worked': calculate_hours_worked(start_time, end_time),
@@ -1995,6 +2168,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
     if has_times and 'time' in allowed:
         return {
             'log_type': 'time',
+            'entry_kind': 'worked',
             'start_time': start_time,
             'end_time': end_time,
             'hours_worked': calculate_hours_worked(start_time, end_time),
@@ -2003,6 +2177,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
     hours_worked = calculate_hours_worked(start_time, end_time) if has_times else None
     return {
         'log_type': 'shift',
+        'entry_kind': 'worked',
         'start_time': start_time,
         'end_time': end_time,
         'hours_worked': hours_worked,
@@ -2012,6 +2187,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
 def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
     """Apply roster-derived fields onto an existing time log."""
     log.log_type = payload['log_type']
+    log.entry_kind = payload.get('entry_kind', 'worked')
     log.start_time = payload.get('start_time')
     log.end_time = payload.get('end_time')
     log.hours_worked = payload.get('hours_worked')
@@ -2070,6 +2246,7 @@ def sync_roster_week_to_time_logs(owner_id: int, week_start: date, rows: list[di
             date=work_date,
             roster_week_start=week_start,
             log_type=payload['log_type'],
+            entry_kind=payload.get('entry_kind', 'worked'),
             start_time=payload.get('start_time'),
             end_time=payload.get('end_time'),
             hours_worked=payload.get('hours_worked'),
@@ -3320,11 +3497,14 @@ def monthly_totals_pdf():
     elements.append(Spacer(1, 0.2*inch))
     
     # Prepare table data
-    table_data = [['FOH Staff', 'Category', 'Month', 'Total Entries', 'Hours Logged', 'Rate', 'Total']]
+    table_data = [[
+        'FOH Staff', 'Category', 'Unpaid Leave', 'Paid Leave', 'Sick Leave',
+        'Shifts', 'Hours Logged', 'Rate', 'Total',
+    ]]
     
     for category_name, staff_members in monthly_data.items():
         # Add category header row
-        table_data.append([f"{category_name}:", '', '', '', '', '', ''])
+        table_data.append([f"{category_name}:", '', '', '', '', '', '', '', ''])
         
         for cleaner_name, cleaner_data in sorted(staff_members.items()):
             for month_key, month_data in sorted(cleaner_data['months'].items()):
@@ -3336,7 +3516,9 @@ def monthly_totals_pdf():
                 table_data.append([
                     cleaner_name,
                     cleaner_data['category'],
-                    month_name,
+                    str(month_data.get('leave_days', 0)),
+                    str(month_data.get('paid_leave_days', 0)),
+                    str(month_data.get('sick_leave_days', 0)),
                     str(month_data['entries']),
                     f"{month_data['hours']:.2f}",
                     month_data['rate_label'],
@@ -3344,7 +3526,10 @@ def monthly_totals_pdf():
                 ])
     
     # Create table
-    table = Table(table_data, colWidths=[1.5*inch, 1*inch, 1.2*inch, 0.8*inch, 0.8*inch, 1*inch, 1*inch])
+    table = Table(
+        table_data,
+        colWidths=[1.3*inch, 0.9*inch, 0.55*inch, 0.65*inch, 0.65*inch, 0.55*inch, 0.65*inch, 1*inch, 0.85*inch],
+    )
     
     # Style the table
     table_style = TableStyle([

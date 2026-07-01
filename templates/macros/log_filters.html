@@ -1,0 +1,55 @@
+{% macro filter_period_summary(filter_year, filter_month, filter_date_from, filter_date_to, filter_category=none, using_default_filter=false) %}
+    {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+    {% if filter_category %}
+        {{ filter_category }}
+        {% if filter_date_from or filter_date_to or filter_year or filter_month %} · {% endif %}
+    {% endif %}
+    {% if filter_date_from or filter_date_to %}
+        {% if filter_date_from and filter_date_to %}
+            {{ filter_date_from.strftime('%d %b %Y') }} – {{ filter_date_to.strftime('%d %b %Y') }}
+            {% if using_default_filter %}<span class="text-muted">(current week)</span>{% endif %}
+        {% elif filter_date_from %}
+            From {{ filter_date_from.strftime('%d %b %Y') }}
+        {% else %}
+            To {{ filter_date_to.strftime('%d %b %Y') }}
+        {% endif %}
+    {% elif filter_year and filter_month %}
+        {{ month_names[filter_month] }} {{ filter_year }}
+        {% if using_default_filter %}<span class="text-muted">(current month)</span>{% endif %}
+    {% elif filter_year %}
+        Year {{ filter_year }}
+    {% elif filter_month %}
+        {{ month_names[filter_month] }} (all years)
+    {% endif %}
+{% endmacro %}
+
+{% macro filter_dropdown_header(menu_id, summary_text, default_text='All periods') %}
+<div class="filter-toolbar">
+    <div class="dropdown filter-dropdown">
+        <button
+            type="button"
+            class="btn filter-icon-btn{% if summary_text %} filter-icon-btn--active{% endif %}"
+            data-bs-toggle="dropdown"
+            data-bs-auto-close="outside"
+            aria-expanded="false"
+            aria-label="Open filters"
+            title="{% if summary_text %}{{ summary_text|striptags }}{% else %}Filter{% endif %}"
+        >
+            <i class="fas fa-sliders"></i>
+        </button>
+        <div id="{{ menu_id }}" class="dropdown-menu filter-dropdown-menu shadow">
+            <div class="filter-dropdown-title">Filter</div>
+            {% if summary_text %}
+            <div class="filter-dropdown-summary">{{ summary_text|safe }}</div>
+            {% else %}
+            <div class="filter-dropdown-summary text-muted">{{ default_text }}</div>
+            {% endif %}
+            <div class="filter-dropdown-fields">
+{% endmacro %}
+
+{% macro filter_dropdown_footer() %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'macros/log_filters.html' import filter_dropdown_header, filter_dropdown_footer, filter_period_summary %}
 
 {% block title %}Monthly Totals - Cleaning Time Logger{% endblock %}
 
@@ -27,10 +28,36 @@
         min-width: 90px;
         font-size: 0.75rem;
     }
-    .monthly-totals-table .month-col {
-        width: 110px;
-        min-width: 100px;
-        font-size: 0.75rem;
+    .monthly-totals-table .leave-col,
+    .monthly-totals-table .paid-leave-col,
+    .monthly-totals-table .sick-leave-col {
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+    .monthly-totals-table th.leave-col {
+        min-width: 96px;
+        width: 96px;
+        white-space: nowrap;
+        font-size: 0.65rem;
+    }
+    .monthly-totals-table th.paid-leave-col,
+    .monthly-totals-table th.sick-leave-col {
+        min-width: 88px;
+        width: 88px;
+        white-space: nowrap;
+        font-size: 0.65rem;
+    }
+    .monthly-totals-table td.leave-col,
+    .monthly-totals-table td.paid-leave-col,
+    .monthly-totals-table td.sick-leave-col {
+        width: 52px;
+        min-width: 48px;
+    }
+    .monthly-totals-table .paid-leave-col {
+        color: #146c43;
+    }
+    .monthly-totals-table .sick-leave-col {
+        color: #b02a37;
     }
     .monthly-totals-table .entries-col,
     .monthly-totals-table .hours-col {
@@ -47,7 +74,6 @@
         min-width: 160px;
         font-weight: 600;
         font-size: 0.78rem;
-        color: #198754;
         padding-left: 0.35rem;
         padding-right: 0.35rem;
     }
@@ -56,7 +82,6 @@
         min-width: 90px;
         font-weight: 600;
         font-size: 0.78rem;
-        color: #198754;
     }
     .monthly-totals-table tr.staff-category-header td {
         background-color: #f8f9fa;
@@ -73,11 +98,19 @@
         font-weight: 600;
     }
     .monthly-totals-table .staff-toggle-btn {
-        min-height: 1.45rem;
-        width: 1.45rem;
+        border: none;
+        background: transparent;
+        padding: 0;
+        margin: 0;
         line-height: 1;
-        padding: 0.1rem 0.25rem;
         font-size: 0.72rem;
+        color: #6c757d;
+        cursor: pointer;
+        flex-shrink: 0;
+    }
+    .monthly-totals-table .staff-toggle-btn:hover,
+    .monthly-totals-table .staff-toggle-btn:focus {
+        color: #212529;
     }
     .monthly-totals-table .staff-toggle-btn[aria-expanded="true"] .fa-chevron-right {
         transform: rotate(90deg);
@@ -90,7 +123,7 @@
         color: #6c757d;
     }
     .monthly-totals-table tr.month-detail-row td.staff-col {
-        padding-left: 1.75rem;
+        padding-left: 0.75rem;
     }
     .monthly-totals-table tr.month-detail-row .rate-col,
     .monthly-totals-table tr.month-detail-row .total-col,
@@ -99,117 +132,80 @@
         font-weight: 500;
         color: #6c757d;
     }
-    .monthly-totals-table tr.totals-section-header td {
-        background-color: #f8f9fa;
-        font-size: 0.72rem;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: #6c757d;
-        text-align: left;
-        padding: 0.18rem 0.35rem;
-    }
-    .monthly-totals-table tr.totals-row td {
-        font-size: 0.75rem;
-        font-weight: 600;
-        background-color: #f8f9fa;
-    }
-    .monthly-totals-table tr.grand-total-row td {
-        font-size: 0.78rem;
-        font-weight: 700;
-        background-color: #e9ecef;
-    }
-    .monthly-totals-table tr.grand-total-row .total-col {
-        color: #146c43;
+    .monthly-totals-table .total-with-share {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 0.35rem;
+        white-space: nowrap;
     }
 </style>
 {% endblock %}
 
 {% block content %}
+{% set filter_summary %}
+{% if filter_year or filter_month or filter_date_from or filter_date_to %}
+{{ filter_period_summary(filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter=using_default_filter) }}
+{% endif %}
+{% endset %}
 <div class="row">
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="card-title mb-0">
-                    <i class="fas fa-calendar-alt me-2"></i>Monthly Totals
-                </h5>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <form method="GET" action="{{ url_for('monthly_totals') }}" class="no-print log-filter-form mb-0" id="monthly-filter-form">
+                        {{ filter_dropdown_header('monthly-filter-menu', filter_summary|trim) }}
+                        <div class="vstack gap-2">
+                            <div>
+                                <label for="year" class="form-label">Year</label>
+                                <select class="form-select form-select-sm" id="year" name="year" onchange="this.form.submit()">
+                                    <option value="">All Years</option>
+                                    {% for year in available_years %}
+                                    <option value="{{ year }}" {% if filter_year == year %}selected{% endif %}>{{ year }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="month" class="form-label">Month</label>
+                                <select class="form-select form-select-sm" id="month" name="month" onchange="this.form.submit()">
+                                    <option value="">All Months</option>
+                                    {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
+                                    {% set month_names_short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+                                    {% for month_num in available_months %}
+                                    <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names_short[month_num] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="date_from" class="form-label">From date</label>
+                                <input type="date" class="form-control form-control-sm" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() if filter_date_from else '' }}" onchange="this.form.submit()">
+                            </div>
+                            <div>
+                                <label for="date_to" class="form-label">To date</label>
+                                <input type="date" class="form-control form-control-sm" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() if filter_date_to else '' }}" onchange="this.form.submit()">
+                            </div>
+                        </div>
+                        <div class="filter-dropdown-actions">
+                            <a href="{{ url_for('monthly_totals') }}" class="btn btn-secondary btn-sm filter-action-btn" title="Reset to the current month">
+                                <i class="fas fa-calendar-day me-1"></i>Current Month
+                            </a>
+                        </div>
+                        {{ filter_dropdown_footer() }}
+                    </form>
+                    <h5 class="card-title mb-0">Monthly Totals</h5>
+                    {% if filter_summary|trim %}
+                    <span class="card-period-label">{{ filter_summary|safe }}</span>
+                    {% endif %}
+                </div>
                 <div class="d-flex gap-2">
                     <button type="button" id="monthly-print-btn" class="btn btn-outline-success btn-sm no-print">
                         <i class="fas fa-print me-2"></i>Print
                     </button>
-                    <a href="{{ url_for('monthly_totals_pdf') }}{{ '?' + filter_query_string if filter_query_string else '' }}" class="btn btn-outline-danger btn-sm no-print" target="_blank">
-                        <i class="fas fa-file-pdf me-2"></i>Download PDF
-                    </a>
                     <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm no-print">
                         <i class="fas fa-arrow-left me-2"></i>Back to Home
                     </a>
                 </div>
             </div>
             <div class="card-body">
-                <form method="GET" action="{{ url_for('monthly_totals') }}" class="mb-4 no-print log-filter-form" id="monthly-filter-form">
-                    <div class="row g-3 align-items-end">
-                        <div class="col-12 col-lg-6 col-xl-2">
-                            <label for="year" class="form-label">Year</label>
-                            <select class="form-select" id="year" name="year" onchange="this.form.submit()">
-                                <option value="">All Years</option>
-                                {% for year in available_years %}
-                                <option value="{{ year }}" {% if filter_year == year %}selected{% endif %}>{{ year }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
-                            <label for="month" class="form-label">Month</label>
-                            <select class="form-select" id="month" name="month" onchange="this.form.submit()">
-                                <option value="">All Months</option>
-                                {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
-                                {% set month_names_short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
-                                {% for month_num in available_months %}
-                                <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names_short[month_num] }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
-                            <label for="date_from" class="form-label">From date</label>
-                            <input type="date" class="form-control" id="date_from" name="date_from" value="{{ filter_date_from.isoformat() if filter_date_from else '' }}" onchange="this.form.submit()">
-                        </div>
-                        <div class="col-12 col-lg-6 col-xl-2">
-                            <label for="date_to" class="form-label">To date</label>
-                            <input type="date" class="form-control" id="date_to" name="date_to" value="{{ filter_date_to.isoformat() if filter_date_to else '' }}" onchange="this.form.submit()">
-                        </div>
-                        <div class="col-12 col-lg-6 col-xl-2 d-flex align-items-end filter-actions">
-                            <a href="{{ url_for('monthly_totals') }}" class="btn btn-secondary filter-action-btn" title="Reset to the current month">
-                                <i class="fas fa-calendar-day me-2"></i>Current Month
-                            </a>
-                        </div>
-                    </div>
-                </form>
-
-                {% if filter_year or filter_month or filter_date_from or filter_date_to %}
-                <div class="alert alert-info no-print mb-3">
-                    <i class="fas fa-filter me-2"></i>
-                    <strong>Filtered:</strong>
-                    {% if filter_date_from or filter_date_to %}
-                        Showing logs
-                        {% if filter_date_from and filter_date_to %}
-                            from {{ filter_date_from.strftime('%d %b %Y') }} to {{ filter_date_to.strftime('%d %b %Y') }}
-                        {% elif filter_date_from %}
-                            from {{ filter_date_from.strftime('%d %b %Y') }} onward
-                        {% else %}
-                            up to {{ filter_date_to.strftime('%d %b %Y') }}
-                        {% endif %}
-                    {% elif filter_year and filter_month %}
-                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
-                        Showing logs for {{ month_names[filter_month] }} {{ filter_year }}
-                        {% if using_default_filter %}<span class="text-muted">(current month)</span>{% endif %}
-                    {% elif filter_year %}
-                        Showing logs for year {{ filter_year }}
-                    {% elif filter_month %}
-                        {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
-                        Showing logs for {{ month_names[filter_month] }} (all years)
-                    {% endif %}
-                </div>
-                {% endif %}
-
                 {% if monthly_data %}
                     {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
                     {% if filter_date_from and filter_date_to %}
@@ -228,17 +224,16 @@
                         {% set print_period_label = '' %}
                     {% endif %}
                     <script id="monthly-print-meta" type="application/json">{{ {'title': 'Monthly Totals', 'period': print_period_label}|tojson }}</script>
-                    <p class="text-muted small mb-2 no-print">
-                        Click a staff member to expand or hide their monthly breakdown.
-                    </p>
                     <div class="table-responsive">
                         <table class="table table-sm table-bordered monthly-totals-table mb-2">
                             <thead class="table-light">
                                 <tr>
                                     <th class="staff-col">Staff</th>
                                     <th class="category-col">Category</th>
-                                    <th class="month-col">Month</th>
-                                    <th class="entries-col">Entries</th>
+                                    <th class="leave-col">Unpaid Leave</th>
+                                    <th class="paid-leave-col">Paid Leave</th>
+                                    <th class="sick-leave-col">Sick Leave</th>
+                                    <th class="entries-col">Shifts</th>
                                     <th class="hours-col">Hours</th>
                                     <th class="rate-col">Rate</th>
                                     <th class="total-col">Total</th>
@@ -248,23 +243,26 @@
                                 {% for category_name, staff_members in monthly_data.items() %}
                                     {% if staff_members %}
                                     <tr class="staff-category-header">
-                                        <td colspan="7">{{ category_name }}</td>
+                                        <td colspan="9">{{ category_name }}</td>
                                     </tr>
                                     {% for cleaner_name, cleaner_data in staff_members.items() %}
                                         {% set staff_slug = (category_name ~ '-' ~ cleaner_name)|replace(' ', '-')|replace("'", '')|replace(',', '')|lower %}
-                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, month_count=0) %}
+                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, total_leave=0, total_paid_leave=0, total_sick_leave=0) %}
                                         {% for month_key, month_data in cleaner_data['months'].items() %}
                                             {% set ns.total_hours = ns.total_hours + month_data['hours'] %}
                                             {% set ns.total_entries = ns.total_entries + month_data['entries'] %}
+                                            {% set ns.total_leave = ns.total_leave + month_data.get('leave_days', 0) %}
+                                            {% set ns.total_paid_leave = ns.total_paid_leave + month_data.get('paid_leave_days', 0) %}
+                                            {% set ns.total_sick_leave = ns.total_sick_leave + month_data.get('sick_leave_days', 0) %}
                                             {% set ns.total_pay = ns.total_pay + month_data['total'] %}
-                                            {% set ns.month_count = ns.month_count + 1 %}
                                         {% endfor %}
                                         <tr class="staff-row">
                                             <td class="staff-col">
-                                                <div class="d-flex align-items-center gap-1">
+                                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                                    <span class="staff-name">{{ cleaner_name }}</span>
                                                     <button
                                                         type="button"
-                                                        class="btn btn-sm btn-outline-secondary staff-toggle-btn no-print"
+                                                        class="staff-toggle-btn no-print"
                                                         data-bs-toggle="collapse"
                                                         data-bs-target=".month-detail-{{ staff_slug }}"
                                                         aria-expanded="false"
@@ -273,11 +271,12 @@
                                                     >
                                                         <i class="fas fa-chevron-right"></i>
                                                     </button>
-                                                    <span class="staff-name">{{ cleaner_name }}</span>
                                                 </div>
                                             </td>
                                             <td class="category-col">{{ cleaner_data['category'] }}</td>
-                                            <td class="month-col">{{ ns.month_count }} mo{% if ns.month_count != 1 %}s{% endif %}</td>
+                                            <td class="leave-col">{{ ns.total_leave }}</td>
+                                            <td class="paid-leave-col">{{ ns.total_paid_leave }}</td>
+                                            <td class="sick-leave-col">{{ ns.total_sick_leave }}</td>
                                             <td class="entries-col">{{ ns.total_entries }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(ns.total_hours) }}</td>
                                             <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
@@ -288,7 +287,9 @@
                                         <tr class="month-detail-row month-detail-{{ staff_slug }} collapse">
                                             <td class="staff-col">{{ month_names[month|int] }} {{ year }}</td>
                                             <td class="category-col">{{ cleaner_data['category'] }}</td>
-                                            <td class="month-col">—</td>
+                                            <td class="leave-col">{{ month_data.get('leave_days', 0) }}</td>
+                                            <td class="paid-leave-col">{{ month_data.get('paid_leave_days', 0) }}</td>
+                                            <td class="sick-leave-col">{{ month_data.get('sick_leave_days', 0) }}</td>
                                             <td class="entries-col">{{ month_data['entries'] }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(month_data['hours']) }}</td>
                                             <td class="rate-col">{{ month_data['rate_label'] }}</td>
@@ -299,20 +300,37 @@
                                     {% endif %}
                                 {% endfor %}
                                 {% if monthly_data %}
-                                <tr class="totals-section-header">
-                                    <td colspan="7">Category totals</td>
+                                <tr class="staff-category-header">
+                                    <td colspan="9">Category totals</td>
                                 </tr>
                                 {% for row in category_totals.display_rows %}
-                                <tr class="totals-row">
-                                    <td class="staff-col" colspan="2">{{ row.label }}</td>
-                                    <td colspan="4"></td>
-                                    <td class="total-col">{{ row.amount|money }}{{ wage_share(row.amount) }}</td>
+                                <tr class="staff-row">
+                                    <td class="staff-col"><span class="staff-name">{{ row.label }}</span></td>
+                                    <td class="category-col">—</td>
+                                    <td class="leave-col">{{ row.get('leave_days', 0) }}</td>
+                                    <td class="paid-leave-col">{{ row.get('paid_leave_days', 0) }}</td>
+                                    <td class="sick-leave-col">{{ row.get('sick_leave_days', 0) }}</td>
+                                    <td class="entries-col">{{ row.get('entries', 0) }}</td>
+                                    <td class="hours-col">{{ "%.1f"|format(row.get('hours', 0)) }}</td>
+                                    <td class="rate-col">—</td>
+                                    <td class="total-col">
+                                        <span class="total-with-share">{{ row.amount|money }}{{ wage_share(row.amount) }}</span>
+                                    </td>
                                 </tr>
                                 {% endfor %}
-                                <tr class="grand-total-row">
-                                    <td class="staff-col" colspan="2">Grand total</td>
-                                    <td colspan="4"></td>
-                                    <td class="total-col">{{ category_totals.grand_total|money }} <span class="fw-normal text-muted">(100%)</span></td>
+                                {% set grand = category_totals.get('grand_stats', {}) %}
+                                <tr class="staff-row">
+                                    <td class="staff-col"><span class="staff-name">Grand total</span></td>
+                                    <td class="category-col">—</td>
+                                    <td class="leave-col">{{ grand.get('leave_days', 0) }}</td>
+                                    <td class="paid-leave-col">{{ grand.get('paid_leave_days', 0) }}</td>
+                                    <td class="sick-leave-col">{{ grand.get('sick_leave_days', 0) }}</td>
+                                    <td class="entries-col">{{ grand.get('entries', 0) }}</td>
+                                    <td class="hours-col">{{ "%.1f"|format(grand.get('hours', 0)) }}</td>
+                                    <td class="rate-col">—</td>
+                                    <td class="total-col">
+                                        <span class="total-with-share">{{ category_totals.grand_total|money }} <span class="fw-normal text-muted">(100%)</span></span>
+                                    </td>
                                 </tr>
                                 {% endif %}
                             </tbody>
@@ -403,15 +421,17 @@ document.addEventListener('DOMContentLoaded', function() {
             'table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; line-height: 1.05; }' +
             'th, td { border: 1px solid #999; padding: 1px 3px; text-align: center; vertical-align: middle; }' +
             'th.staff-col, td.staff-col { text-align: left; width: 16%; font-weight: 600; }' +
-            'th.category-col, td.category-col { width: 10%; }' +
-            'th.month-col, td.month-col { width: 10%; }' +
-            'th.entries-col, td.entries-col, th.hours-col, td.hours-col { width: 7%; font-weight: 700; }' +
-            'th.rate-col, td.rate-col { width: 22%; text-align: left; }' +
-            'th.total-col, td.total-col { width: 10%; font-weight: 700; }' +
-            'tr.staff-category-header td, tr.totals-section-header td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
+            'th.category-col, td.category-col { width: 8%; }' +
+            'th.leave-col, td.leave-col { width: 8%; white-space: nowrap; }' +
+            'th.paid-leave-col, td.paid-leave-col, th.sick-leave-col, td.sick-leave-col { width: 7%; white-space: nowrap; }' +
+            'th.entries-col, td.entries-col, th.hours-col, td.hours-col { width: 6%; font-weight: 700; }' +
+            'th.rate-col, td.rate-col { width: 18%; text-align: left; }' +
+            'th.total-col, td.total-col { width: 12%; font-weight: 700; }' +
+            'tr.staff-row td.total-col { white-space: nowrap; }' +
+            '.total-with-share { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }' +
+            'tr.staff-category-header td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
             'tr.month-detail-row td { color: #444; font-size: 6.5pt; }' +
             'tr.month-detail-row td.staff-col { padding-left: 10px; font-weight: 500; }' +
-            'tr.totals-row td, tr.grand-total-row td { background: #f5f5f5; font-weight: 700; }' +
             '</style></head><body>' +
             '<div class="print-sheet">' +
             '<h1 class="print-title">' + escapeHtml(meta.title) + '</h1>' +
