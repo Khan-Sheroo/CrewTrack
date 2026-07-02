@@ -1240,6 +1240,30 @@ def _calculate_category_totals(ordered_data, period_bucket_key):
     return category_totals
 
 
+def _parse_pay_basis_filter(raw_value):
+    """Return 'monthly' when filtering to monthly-paid staff only."""
+    if raw_value == 'monthly':
+        return 'monthly'
+    return None
+
+
+def _filter_ordered_staff_by_pay_basis(ordered_data, pay_basis):
+    """Keep only staff matching the selected pay basis."""
+    if pay_basis != 'monthly':
+        return ordered_data
+
+    filtered = {}
+    for category_name, staff_members in ordered_data.items():
+        monthly_staff = {
+            name: data
+            for name, data in staff_members.items()
+            if data.get('paid_monthly')
+        }
+        if monthly_staff:
+            filtered[category_name] = monthly_staff
+    return filtered
+
+
 def _previous_calendar_month(year: int, month: int) -> tuple[int, int]:
     if month == 1:
         return year - 1, 12
@@ -1600,7 +1624,7 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
     category_totals = _calculate_category_totals(ordered_data, 'weeks')
     return ordered_data, category_totals
 
-def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date_to=None):
+def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date_to=None, pay_basis=None):
     """Group logs by cleaner and month with pay totals and tracked hours, organized by category.
     
     Args:
@@ -1608,6 +1632,7 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
         filter_month: Optional month to filter by (1-12)
         date_from: Optional start date for custom range (inclusive)
         date_to: Optional end date for custom range (inclusive)
+        pay_basis: When 'monthly', include only staff on a monthly pay rate
     """
     query = _filter_timelog_query(
         timelogs_query(),
@@ -1709,7 +1734,9 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
         if cleaner:
             rate_type, rate_amount = get_cleaner_rate_config(cleaner, representative_date)
             flat_monthly = is_flat_monthly(cleaner)
-            if normalize_rate_type(rate_type) == 'hourly':
+            normalized_rate_type = normalize_rate_type(rate_type)
+            cleaner_data['paid_monthly'] = normalized_rate_type == 'monthly'
+            if normalized_rate_type == 'hourly':
                 cleaner_data['rate_label'] = format_hourly_rate_label(rate_amount)
             else:
                 cleaner_data['rate_label'] = format_rate_label(
@@ -1719,6 +1746,7 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
                 )
         else:
             cleaner_data['rate_label'] = '—'
+            cleaner_data['paid_monthly'] = False
     
     # Group by category and sort, separating head bartenders
     head_barman_names = ['EDSON', 'NICKI', 'COLLIN (bar)', 'COLLIN bar', 'MUKETIWA']
@@ -1783,7 +1811,8 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
     # Add any remaining uncategorized
     if 'Uncategorized' in categorized_data and categorized_data['Uncategorized']:
         ordered_data['Uncategorized'] = categorized_data['Uncategorized']
-    
+
+    ordered_data = _filter_ordered_staff_by_pay_basis(ordered_data, pay_basis)
     category_totals = _calculate_category_totals(ordered_data, 'months')
     return ordered_data, category_totals
 
@@ -1987,6 +2016,24 @@ def _resolve_week_filter_params(args, allow_show_all: bool = False):
     filter_year = args.get('year', type=int)
     filter_month = args.get('month', type=int)
     return filter_year, filter_month, filter_date_from, filter_date_to, False, False
+
+
+def _weekly_filter_spans_multiple_weeks(
+    filter_year,
+    filter_month,
+    filter_date_from,
+    filter_date_to,
+):
+    """Return True when the active weekly filter can include more than one week."""
+    if filter_date_from or filter_date_to:
+        if filter_date_from and filter_date_to:
+            return get_week_start(filter_date_from) != get_week_start(filter_date_to)
+        return True
+
+    if filter_year is not None or filter_month is not None:
+        return True
+
+    return False
 
 
 def parse_week_start_param(raw_week: str | None, fallback: date | None = None) -> date:
@@ -2641,7 +2688,6 @@ def login():
         session.clear()
         session['user_id'] = user.id
         session.permanent = bool(request.form.get('remember'))
-        flash(f'Welcome back!', 'success')
 
         next_url = request.args.get('next') or request.form.get('next')
         if next_url and next_url.startswith('/'):
@@ -2693,7 +2739,6 @@ def register():
 def logout():
     """Sign out."""
     session.clear()
-    flash('You have been signed out.', 'success')
     return redirect(url_for('login'))
 
 
@@ -3192,6 +3237,12 @@ def weekly_totals():
     filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter, _ = (
         _resolve_week_filter_params(request.args)
     )
+    show_staff_week_breakdown = _weekly_filter_spans_multiple_weeks(
+        filter_year,
+        filter_month,
+        filter_date_from,
+        filter_date_to,
+    )
 
     weekly_data, category_totals = get_weekly_totals(
         filter_year=filter_year,
@@ -3219,6 +3270,7 @@ def weekly_totals():
         filter_date_from=filter_date_from,
         filter_date_to=filter_date_to,
         using_default_filter=using_default_filter,
+        show_staff_week_breakdown=show_staff_week_breakdown,
         filter_query_string=filter_query_string,
         available_years=years,
         available_months=months,
@@ -3251,7 +3303,28 @@ def _resolve_monthly_filter_params(args):
     return filter_year, filter_month, filter_date_from, filter_date_to, False
 
 
-def _monthly_filter_query_string(filter_year, filter_month, filter_date_from, filter_date_to):
+def _monthly_filter_spans_multiple_months(
+    filter_year,
+    filter_month,
+    filter_date_from,
+    filter_date_to,
+):
+    """Return True when the active monthly filter can include more than one month."""
+    if filter_date_from or filter_date_to:
+        if filter_date_from and filter_date_to:
+            start_month = filter_date_from.replace(day=1)
+            end_month = filter_date_to.replace(day=1)
+            return (start_month.year, start_month.month) != (end_month.year, end_month.month)
+        return True
+
+    if filter_year is not None and filter_month is not None:
+        return False
+    if filter_year is not None or filter_month is not None:
+        return True
+    return True
+
+
+def _monthly_filter_query_string(filter_year, filter_month, filter_date_from, filter_date_to, pay_basis=None):
     """Build a query string reflecting the active monthly filters."""
     parts = []
     if filter_date_from or filter_date_to:
@@ -3264,6 +3337,8 @@ def _monthly_filter_query_string(filter_year, filter_month, filter_date_from, fi
             parts.append(f'year={filter_year}')
         if filter_month is not None:
             parts.append(f'month={filter_month}')
+    if pay_basis == 'monthly':
+        parts.append('pay_basis=monthly')
     return '&'.join(parts)
 
 
@@ -3279,12 +3354,20 @@ def monthly_totals():
     filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter = (
         _resolve_monthly_filter_params(request.args)
     )
+    filter_pay_basis = _parse_pay_basis_filter(request.args.get('pay_basis'))
+    show_staff_month_breakdown = _monthly_filter_spans_multiple_months(
+        filter_year,
+        filter_month,
+        filter_date_from,
+        filter_date_to,
+    )
     
     monthly_data, category_totals = get_monthly_totals(
         filter_year=filter_year,
         filter_month=filter_month,
         date_from=filter_date_from,
-        date_to=filter_date_to
+        date_to=filter_date_to,
+        pay_basis=filter_pay_basis,
     )
     
     years, months = get_tenant_log_year_month_options()
@@ -3293,7 +3376,7 @@ def monthly_totals():
         request.query_string.decode()
         if request.query_string
         else _monthly_filter_query_string(
-            filter_year, filter_month, filter_date_from, filter_date_to
+            filter_year, filter_month, filter_date_from, filter_date_to, filter_pay_basis
         )
     )
     
@@ -3305,6 +3388,8 @@ def monthly_totals():
                          filter_date_from=filter_date_from,
                          filter_date_to=filter_date_to,
                          using_default_filter=using_default_filter,
+                         filter_pay_basis=filter_pay_basis,
+                         show_staff_month_breakdown=show_staff_month_breakdown,
                          filter_query_string=filter_query_string,
                          available_years=years,
                          available_months=months)

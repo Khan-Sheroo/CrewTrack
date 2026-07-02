@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'macros/log_filters.html' import filter_dropdown_header, filter_dropdown_footer %}
 
 {% block title %}Admin Dashboard - CrewTrack{% endblock %}
 
@@ -326,6 +327,47 @@
     #wage-bill-by-category .card-body {
         overflow-x: visible;
     }
+    [data-bs-theme="dark"] .stat-card.stat-card-circle {
+        border-color: var(--bs-border-color);
+    }
+    [data-bs-theme="dark"] .shift-roster-table .shift-staff-suggestions {
+        background: var(--bs-body-bg);
+        border-color: var(--bs-border-color);
+        box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.35);
+    }
+    [data-bs-theme="dark"] .shift-roster-table .shift-staff-suggestion:hover,
+    [data-bs-theme="dark"] .shift-roster-table .shift-staff-suggestion.is-active {
+        background: var(--bs-tertiary-bg);
+    }
+    [data-bs-theme="dark"] .shift-roster-table .shift-staff-suggestion.create-new {
+        border-top-color: var(--bs-border-color);
+    }
+    [data-bs-theme="dark"] .shift-day-cell:hover {
+        background-color: var(--bs-tertiary-bg);
+    }
+    [data-bs-theme="dark"] .shift-day-cell .shift-time-label {
+        color: #9ec5fe;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled .shift-time-label.text-muted {
+        color: #6ea8fe;
+    }
+    [data-bs-theme="dark"] .shift-roster-table tfoot .shift-roster-grand-label {
+        color: var(--bs-body-color);
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-sick-leave,
+    [data-bs-theme="dark"] .shift-day-cell.is-paid-leave {
+        background-color: rgb(255 243 205 / 22%);
+        box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-sick-leave:hover,
+    [data-bs-theme="dark"] .shift-day-cell.is-paid-leave:hover {
+        background-color: rgb(255 243 205 / 32%);
+        box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
+    }
+    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.sick-leave,
+    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.paid-leave {
+        color: #997404;
+    }
     @media (max-width: 767.98px) {
         .shift-roster-table th.staff-col,
         .shift-roster-table td.staff-col {
@@ -364,8 +406,8 @@
         <p class="text-muted mb-0">{{ today.strftime('%A, %d %B %Y') }}</p>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-        <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStaffModal">
-            <i class="fas fa-user-plus me-2"></i>Add Staff
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addStaffModal">
+            <i class="fas fa-user-plus me-1"></i>Add Staff
         </button>
     </div>
 </div>
@@ -567,47 +609,49 @@
     <!-- Category comparison -->
     <div class="col-12">
         <div class="card h-100" id="wage-bill-by-category">
+            {% set month_names_short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
+            {% set filter_summary %}{{ wage_comparison.label_a }} vs {{ wage_comparison.label_b }}{% endset %}
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <h6 class="card-title mb-0"><i class="fas fa-calculator me-2"></i>Wage Bill by Category</h6>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <form method="GET" action="{{ url_for('index') }}#wage-bill-by-category" class="log-filter-form mb-0" id="wage-compare-form">
+                        {{ filter_dropdown_header('wage-compare-filter-menu', filter_summary|trim) }}
+                        <div class="vstack gap-2">
+                            <div>
+                                <label for="compare_a" class="form-label">Month A</label>
+                                <select class="form-select form-select-sm" id="compare_a" name="compare_a" onchange="this.form.submit()">
+                                    {% for year, month in available_log_months %}
+                                    {% set month_key = '%d-%02d'|format(year, month) %}
+                                    <option value="{{ month_key }}" {% if compare_a_key == month_key %}selected{% endif %}>
+                                        {{ month_names_short[month] }} {{ year }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="compare_b" class="form-label">Month B</label>
+                                <select class="form-select form-select-sm" id="compare_b" name="compare_b" onchange="this.form.submit()">
+                                    {% for year, month in available_log_months %}
+                                    {% set month_key = '%d-%02d'|format(year, month) %}
+                                    <option value="{{ month_key }}" {% if compare_b_key == month_key %}selected{% endif %}>
+                                        {{ month_names_short[month] }} {{ year }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="filter-dropdown-actions">
+                            <a href="{{ url_for('index') }}#wage-bill-by-category" class="btn btn-secondary btn-sm filter-action-btn" title="Compare current month with the previous month">
+                                <i class="fas fa-calendar-day me-1"></i>Default Comparison
+                            </a>
+                        </div>
+                        {{ filter_dropdown_footer() }}
+                    </form>
+                    <h6 class="card-title mb-0">Wage Bill by Category</h6>
+                    <span class="card-period-label">{{ filter_summary|safe }}</span>
+                </div>
                 <a href="{{ url_for('monthly_totals') }}" class="btn btn-sm btn-outline-primary">Full Report</a>
             </div>
             <div class="card-body">
-                <form method="GET" action="{{ url_for('index') }}" class="mb-4 log-filter-form" id="wage-compare-form">
-                    {% set month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] %}
-                    {% set month_names_short = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] %}
-                    <div class="row g-3 align-items-end">
-                    <div class="col-12 col-lg-5">
-                        <label for="compare_a" class="form-label">Month A</label>
-                        <div class="compare-select-wrap">
-                        <select class="form-select" id="compare_a" name="compare_a" onchange="this.form.submit()">
-                            {% for year, month in available_log_months %}
-                            {% set month_key = '%d-%02d'|format(year, month) %}
-                            <option value="{{ month_key }}" {% if compare_a_key == month_key %}selected{% endif %}>
-                                {{ month_names_short[month] }} {{ year }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        </div>
-                    </div>
-                    <div class="col-12 col-lg-5">
-                        <label for="compare_b" class="form-label">Month B</label>
-                        <div class="compare-select-wrap">
-                        <select class="form-select" id="compare_b" name="compare_b" onchange="this.form.submit()">
-                            {% for year, month in available_log_months %}
-                            {% set month_key = '%d-%02d'|format(year, month) %}
-                            <option value="{{ month_key }}" {% if compare_b_key == month_key %}selected{% endif %}>
-                                {{ month_names_short[month] }} {{ year }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        </div>
-                    </div>
-                    <div class="col-12 col-lg-2">
-                        <button type="submit" class="btn btn-primary w-100">Compare</button>
-                    </div>
-                    </div>
-                </form>
-
                 {% if wage_comparison.has_data %}
                 <div class="table-responsive mb-4">
                     <table class="table table-sm table-bordered wage-bill-table mb-2">
@@ -1362,13 +1406,13 @@ function initWeeklyShiftRoster() {
     }
 
     function shouldGroupRosterRows(rows) {
-        const groups = new Set();
-        rows.forEach(function(row) {
-            if (!isAssignedRow(row)) return;
-            const group = getRowGroup(row);
-            if (group) groups.add(group);
+        return rows.some(function(row) {
+            return isAssignedRow(row) && Boolean(getRowGroup(row));
         });
-        return groups.size > 1;
+    }
+
+    function getRowDisplayGroup(row) {
+        return getRowGroup(row) || (isAssignedRow(row) ? 'Uncategorized' : null);
     }
 
     function compareRowsForDisplay(a, b, groupActive) {
@@ -1547,16 +1591,31 @@ function initWeeklyShiftRoster() {
         hideStaffSuggestions(input);
     }
 
+    function assignStaffToRow(rowIndex, staff) {
+        const emptyDays = [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()];
+        const existingDays = (rosterRows[rowIndex] && rosterRows[rowIndex].days) || emptyDays;
+        rosterRows[rowIndex] = {
+            name: staff.name,
+            cleaner_id: staff.id,
+            days: existingDays.map(normalizeDay),
+        };
+    }
+
     function commitStaffInput(input) {
+        const rowIndex = getStaffRowIndexFromInput(input);
         const match = resolveStaffByName(input.value.trim());
         if (match) {
             input.value = match.name;
             input.dataset.cleanerId = String(match.id);
+            rosterRows = collectRows();
+            if (rowIndex >= 0) {
+                assignStaffToRow(rowIndex, match);
+            }
         } else {
             delete input.dataset.cleanerId;
+            rosterRows = collectRows();
         }
         hideStaffSuggestions(input);
-        rosterRows = collectRows();
         renderRows();
         scheduleAutoSave();
     }
@@ -1687,7 +1746,7 @@ function initWeeklyShiftRoster() {
         let lastGroup = null;
 
         rosterRows.forEach(function(row, rowIndex) {
-            const group = getRowGroup(row);
+            const group = getRowDisplayGroup(row);
             if (groupActive && isAssignedRow(row) && group && group !== lastGroup) {
                 appendCategoryHeader(group);
                 lastGroup = group;
@@ -1883,7 +1942,7 @@ function initWeeklyShiftRoster() {
         let lastGroup = null;
 
         printableRows.forEach(function(row) {
-            const group = getRowGroup(row);
+            const group = getRowDisplayGroup(row);
             if (groupActive && isAssignedRow(row) && group && group !== lastGroup) {
                 bodyRows +=
                     '<tr class="category-row"><td colspan="' + rosterPrintColumnCount() + '">' + escapeHtml(group) + '</td></tr>';

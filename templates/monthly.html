@@ -143,6 +143,8 @@
 
 {% block content %}
 {% set filter_summary %}
+{% if filter_pay_basis == 'monthly' %}Monthly staff only{% endif %}
+{% if filter_pay_basis == 'monthly' and (filter_year or filter_month or filter_date_from or filter_date_to) %} · {% endif %}
 {% if filter_year or filter_month or filter_date_from or filter_date_to %}
 {{ filter_period_summary(filter_year, filter_month, filter_date_from, filter_date_to, using_default_filter=using_default_filter) }}
 {% endif %}
@@ -173,6 +175,13 @@
                                     {% for month_num in available_months %}
                                     <option value="{{ month_num }}" {% if filter_month == month_num %}selected{% endif %}>{{ month_names_short[month_num] }}</option>
                                     {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="pay_basis" class="form-label">Pay basis</label>
+                                <select class="form-select form-select-sm" id="pay_basis" name="pay_basis" onchange="this.form.submit()">
+                                    <option value="">All staff</option>
+                                    <option value="monthly" {% if filter_pay_basis == 'monthly' %}selected{% endif %}>Monthly staff only</option>
                                 </select>
                             </div>
                             <div>
@@ -256,10 +265,12 @@
                                             {% set ns.total_sick_leave = ns.total_sick_leave + month_data.get('sick_leave_days', 0) %}
                                             {% set ns.total_pay = ns.total_pay + month_data['total'] %}
                                         {% endfor %}
+                                        {% set can_expand_staff = show_staff_month_breakdown and (cleaner_data['months']|length > 1) %}
                                         <tr class="staff-row">
                                             <td class="staff-col">
-                                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                                <div class="d-flex align-items-center{% if can_expand_staff %} justify-content-between{% endif %} gap-2">
                                                     <span class="staff-name">{{ cleaner_name }}</span>
+                                                    {% if can_expand_staff %}
                                                     <button
                                                         type="button"
                                                         class="staff-toggle-btn no-print"
@@ -271,6 +282,7 @@
                                                     >
                                                         <i class="fas fa-chevron-right"></i>
                                                     </button>
+                                                    {% endif %}
                                                 </div>
                                             </td>
                                             <td class="category-col">{{ cleaner_data['category'] }}</td>
@@ -282,6 +294,7 @@
                                             <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
                                             <td class="total-col">{{ ns.total_pay|money }}</td>
                                         </tr>
+                                        {% if can_expand_staff %}
                                         {% for month_key, month_data in cleaner_data['months'].items() %}
                                         {% set year, month = month_key.split('-') %}
                                         <tr class="month-detail-row month-detail-{{ staff_slug }} collapse">
@@ -296,6 +309,7 @@
                                             <td class="total-col">{{ month_data['total']|money }}</td>
                                         </tr>
                                         {% endfor %}
+                                        {% endif %}
                                     {% endfor %}
                                     {% endif %}
                                 {% endfor %}

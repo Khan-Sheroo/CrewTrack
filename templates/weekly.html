@@ -258,10 +258,12 @@
                                             {% set ns.total_pay = ns.total_pay + week_data['total'] %}
                                             {% endif %}
                                         {% endfor %}
+                                        {% set can_expand_staff = show_staff_week_breakdown and (cleaner_data['weeks']|length > 1) %}
                                         <tr class="staff-row">
                                             <td class="staff-col">
-                                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                                <div class="d-flex align-items-center{% if can_expand_staff %} justify-content-between{% endif %} gap-2">
                                                     <span class="staff-name">{{ cleaner_name }}</span>
+                                                    {% if can_expand_staff %}
                                                     <button
                                                         type="button"
                                                         class="staff-toggle-btn no-print"
@@ -273,6 +275,7 @@
                                                     >
                                                         <i class="fas fa-chevron-right"></i>
                                                     </button>
+                                                    {% endif %}
                                                 </div>
                                             </td>
                                             <td class="category-col">{{ cleaner_data['category'] }}</td>
@@ -284,6 +287,7 @@
                                             <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
                                             <td class="total-col">{% if cleaner_data.get('paid_monthly') %}—{% else %}{{ ns.total_pay|money }}{% endif %}</td>
                                         </tr>
+                                        {% if can_expand_staff %}
                                         {% for week_key, week_data in cleaner_data['weeks'].items() %}
                                         <tr class="week-detail-row week-detail-{{ staff_slug }} collapse">
                                             <td class="staff-col">{{ week_key }}</td>
@@ -297,6 +301,7 @@
                                             <td class="total-col">{% if week_data.get('paid_monthly') %}—{% else %}{{ week_data['total']|money }}{% endif %}</td>
                                         </tr>
                                         {% endfor %}
+                                        {% endif %}
                                     {% endfor %}
                                     {% endif %}
                                 {% endfor %}

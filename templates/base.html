@@ -1,22 +1,54 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Cleaning Time Logger{% endblock %}</title>
+    <script>
+    (function() {
+        var theme = localStorage.getItem('crewtrack-theme');
+        if (theme === 'dark' || theme === 'light') {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+        }
+    })();
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
+        :root,
+        [data-bs-theme="light"] {
+            --ct-surface-muted: #f8f9fa;
+            --ct-surface-emphasis: #e9ecef;
+            --ct-border-subtle: #dee2e6;
+            --ct-filter-summary-bg: #cff4fc;
+            --ct-filter-summary-text: #055160;
+            --ct-filter-summary-border: #b6effb;
+        }
+        [data-bs-theme="dark"] {
+            --ct-surface-muted: #2b3035;
+            --ct-surface-emphasis: #343a40;
+            --ct-border-subtle: #495057;
+            --ct-filter-summary-bg: #032830;
+            --ct-filter-summary-text: #6edff6;
+            --ct-filter-summary-border: #087990;
+            color-scheme: dark;
+        }
+        body {
+            background-color: var(--bs-body-bg);
+            color: var(--bs-body-color);
+        }
         .navbar-brand {
             font-weight: bold;
-            color: #2c3e50 !important;
+            color: var(--bs-emphasis-color) !important;
             padding-top: 0.5rem;
             padding-bottom: 0.5rem;
         }
         .navbar-brand-logo {
-            height: 128px;
-            width: auto;
+            width: 86px;
+            height: 86px;
             display: block;
+            border-radius: 50%;
+            object-fit: cover;
         }
         .navbar {
             min-height: auto;
@@ -35,20 +67,24 @@
             border-color: #2980b9;
         }
         .table th {
-            background-color: #f8f9fa;
+            background-color: var(--ct-surface-muted);
             border-top: none;
         }
-        .alert {
-            border-radius: 0.5rem;
-        }
         .tip-amount {
-            background-color: #f8f9fa;
+            background-color: var(--ct-surface-muted);
             font-weight: 500;
         }
         .tip-negative {
             background-color: #f8d7da;
             color: #721c24;
             font-weight: bold;
+        }
+        [data-bs-theme="dark"] .tip-negative {
+            background-color: #442326;
+            color: #f1aeb5;
+        }
+        .alert {
+            border-radius: 0.5rem;
         }
         .numeric-input {
             text-align: right;
@@ -81,32 +117,24 @@
             border-color: #0d6efd;
         }
         /* Filter toolbars: stack on small screens, no horizontal overflow */
-        .log-filter-form,
-        #wage-compare-form {
+        .log-filter-form {
             max-width: 100%;
         }
-        .log-filter-form > .row,
-        #wage-compare-form > .row {
+        .log-filter-form > .row {
             margin-left: 0;
             margin-right: 0;
         }
-        .log-filter-form > .row > [class*="col-"],
-        #wage-compare-form > .row > [class*="col-"] {
+        .log-filter-form > .row > [class*="col-"] {
             min-width: 0;
             padding-left: calc(var(--bs-gutter-x) * 0.5);
             padding-right: calc(var(--bs-gutter-x) * 0.5);
         }
         .log-filter-form .form-select,
-        .log-filter-form .form-control,
-        #wage-compare-form .form-select {
+        .log-filter-form .form-control {
             width: 100%;
             max-width: 100%;
             min-width: 0;
             box-sizing: border-box;
-        }
-        .compare-select-wrap {
-            max-width: 100%;
-            overflow: hidden;
         }
         .log-filter-form input[type="date"],
         .log-filter-form input[type="time"] {
@@ -125,8 +153,7 @@
                 flex-wrap: nowrap;
                 align-items: center;
             }
-            .log-filter-form .filter-action-btn,
-            #wage-compare-form .btn {
+            .log-filter-form .filter-action-btn {
                 width: 100%;
             }
             .log-filter-form .filter-actions-inline .filter-action-btn {
@@ -150,9 +177,9 @@
             font-size: 0.65rem;
             line-height: 1.15;
             white-space: normal;
-            color: #055160;
-            background-color: #cff4fc;
-            border: 1px solid #b6effb;
+            color: var(--ct-filter-summary-text);
+            background-color: var(--ct-filter-summary-bg);
+            border: 1px solid var(--ct-filter-summary-border);
             border-radius: 0.375rem;
         }
         .log-filter-form .filter-summary-inline .fa-filter {
@@ -175,19 +202,19 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid #dee2e6;
+            border: 1px solid var(--ct-border-subtle);
             border-radius: 0.375rem;
-            background: #fff;
-            color: #495057;
+            background: var(--bs-body-bg);
+            color: var(--bs-body-color);
             box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
             line-height: 1;
         }
         .filter-icon-btn:hover,
         .filter-icon-btn:focus,
         .filter-icon-btn.show {
-            background: #f8f9fa;
-            border-color: #ced4da;
-            color: #212529;
+            background: var(--ct-surface-muted);
+            border-color: var(--ct-border-subtle);
+            color: var(--bs-emphasis-color);
         }
         .filter-icon-btn--active {
             border-color: #3498db;
@@ -197,13 +224,14 @@
         .filter-dropdown-menu {
             width: min(18rem, calc(100vw - 2rem));
             padding: 0.75rem;
-            border: 1px solid #dee2e6;
+            border: 1px solid var(--ct-border-subtle);
             border-radius: 0.5rem;
+            background: var(--bs-body-bg);
         }
         .filter-dropdown-title {
             font-size: 0.8125rem;
             font-weight: 600;
-            color: #212529;
+            color: var(--bs-emphasis-color);
             margin-bottom: 0.15rem;
         }
         .filter-dropdown-summary {
@@ -211,7 +239,7 @@
             line-height: 1.35;
             margin-bottom: 0.65rem;
             padding-bottom: 0.65rem;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid var(--ct-border-subtle);
         }
         .filter-dropdown-summary .text-muted {
             font-size: 0.72rem;
@@ -232,7 +260,41 @@
             gap: 0.35rem;
             margin-top: 0.75rem;
             padding-top: 0.75rem;
-            border-top: 1px solid #eee;
+            border-top: 1px solid var(--ct-border-subtle);
+        }
+        .theme-toggle-row {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--ct-border-subtle);
+        }
+        .theme-toggle-row .form-check-label {
+            font-size: 0.8125rem;
+        }
+        [data-bs-theme="dark"] .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.35);
+        }
+        [data-bs-theme="dark"] tr.staff-category-header td,
+        [data-bs-theme="dark"] .shift-roster-table tr.shift-category-header td {
+            background-color: var(--ct-surface-muted) !important;
+            color: var(--bs-body-color) !important;
+        }
+        [data-bs-theme="dark"] .shift-roster-table thead th,
+        [data-bs-theme="dark"] .weekly-totals-table thead th,
+        [data-bs-theme="dark"] .monthly-totals-table thead th {
+            color: var(--bs-body-color) !important;
+            --bs-table-color: var(--bs-body-color);
+        }
+        [data-bs-theme="dark"] .shift-roster-table .day-head small {
+            color: var(--bs-body-color) !important;
+        }
+        [data-bs-theme="dark"] tr.grand-total-row td,
+        [data-bs-theme="dark"] .wage-bill-table tr.grand-total-row td,
+        [data-bs-theme="dark"] .shift-roster-table tfoot tr.shift-roster-grand-total-row td {
+            background-color: var(--ct-surface-emphasis) !important;
+        }
+        [data-bs-theme="dark"] .weekly-totals-table tr.week-detail-row td,
+        [data-bs-theme="dark"] .monthly-totals-table tr.month-detail-row td {
+            color: var(--bs-secondary-color) !important;
         }
         .filter-dropdown-actions .btn {
             flex: 1 1 auto;
@@ -251,34 +313,24 @@
             flex-wrap: wrap;
             gap: 0.5rem;
         }
-        .navbar-account-stack {
-            display: flex;
-            flex-direction: column;
-            align-items: stretch;
-            gap: 0.65rem;
-        }
-        .navbar-account-stack .form-select,
-        .navbar-account-stack .btn {
-            width: 100%;
-        }
         .navbar-actions {
             display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            gap: 0.5rem;
+            align-items: center;
             margin-left: auto;
         }
-        .navbar-user-email {
-            text-align: right;
-            line-height: 1.2;
+        .navbar-account-dropdown .filter-dropdown-menu {
+            margin-top: 0.35rem;
+        }
+        .navbar-account-dropdown .filter-dropdown-actions .btn {
+            width: 100%;
         }
         .navbar-login {
             position: relative;
-            min-height: 144px;
+            min-height: 172px;
         }
         .navbar-login > .container-fluid {
             justify-content: center !important;
-            min-height: 144px;
+            min-height: 172px;
         }
         .navbar-login .navbar-brand {
             position: absolute;
@@ -286,6 +338,12 @@
             top: 50%;
             transform: translate(-50%, -50%);
             margin: 0 !important;
+        }
+        .navbar-auth-theme {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
         }
         html,
         body {
@@ -295,38 +353,75 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar navbar-light bg-light shadow-sm{% if request.endpoint == 'login' %} navbar-login{% endif %}">
-        <div class="{% if request.endpoint == 'login' %}container-fluid navbar-auth-page px-3{% else %}container d-flex align-items-center{% endif %}">
+    {% set auth_layout_page = request.endpoint in ('login', 'register') %}
+    <nav class="navbar bg-body-secondary shadow-sm{% if auth_layout_page %} navbar-login{% endif %}">
+        <div class="{% if auth_layout_page %}container-fluid navbar-auth-page px-3{% else %}container d-flex align-items-center{% endif %}">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
-                <img src="{{ url_for('static', filename='logo_crewTrack.jpg') }}" alt="CrewTrack" class="navbar-brand-logo">
+                <img src="{{ url_for('static', filename='logo_crewTrack.png') }}" alt="CrewTrack" class="navbar-brand-logo">
             </a>
             {% if current_user %}
             <div class="navbar-actions">
-                <div class="navbar-account-stack">
-                    <form method="POST" action="{{ url_for('set_currency') }}" class="mb-0">
-                        <input type="hidden" name="next" value="{{ request.full_path }}">
-                        <select class="form-select form-select-sm" id="currency-select" name="currency" onchange="this.form.submit()" title="Display currency" aria-label="Currency">
-                            {% for option in currency_options %}
-                            <option value="{{ option.code }}" {% if currency_code == option.code %}selected{% endif %}>
-                                {{ option.short }} ({{ option.symbol }})
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </form>
-                    <form method="POST" action="{{ url_for('logout') }}" class="mb-0">
-                        <button type="submit" class="btn btn-outline-secondary btn-sm">
-                            <i class="fas fa-sign-out-alt me-1"></i>Sign Out
-                        </button>
-                    </form>
+                <div class="dropdown filter-dropdown navbar-account-dropdown">
+                    <button
+                        type="button"
+                        class="btn filter-icon-btn"
+                        data-bs-toggle="dropdown"
+                        data-bs-auto-close="outside"
+                        aria-expanded="false"
+                        aria-label="Open account menu"
+                        title="{{ current_user.email }}"
+                    >
+                        <i class="fas fa-user"></i>
+                    </button>
+                    <div class="dropdown-menu dropdown-menu-end filter-dropdown-menu shadow">
+                        <div class="filter-dropdown-title">Account</div>
+                        <div class="filter-dropdown-summary text-muted">
+                            <i class="fas fa-envelope me-1"></i>{{ current_user.email }}
+                        </div>
+                        <div class="filter-dropdown-fields">
+                            <form method="POST" action="{{ url_for('set_currency') }}" class="mb-0">
+                                <input type="hidden" name="next" value="{{ request.full_path }}">
+                                <label for="currency-select" class="form-label">Currency</label>
+                                <select class="form-select form-select-sm" id="currency-select" name="currency" onchange="this.form.submit()" aria-label="Currency">
+                                    {% for option in currency_options %}
+                                    <option value="{{ option.code }}" {% if currency_code == option.code %}selected{% endif %}>
+                                        {{ option.short }} ({{ option.symbol }})
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+                        </div>
+                        <div class="theme-toggle-row">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="theme-toggle" aria-label="Night mode">
+                                <label class="form-check-label" for="theme-toggle">
+                                    <i class="fas fa-moon me-1"></i>Night mode
+                                </label>
+                            </div>
+                        </div>
+                        <div class="filter-dropdown-actions">
+                            <form method="POST" action="{{ url_for('logout') }}" class="mb-0">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-sign-out-alt me-1"></i>Sign Out
+                                </button>
+                            </form>
+                        </div>
+                    </div>
                 </div>
-                <span class="text-muted small navbar-user-email">
-                    <i class="fas fa-user me-1"></i>{{ current_user.email }}
-                </span>
             </div>
-            {% elif request.endpoint != 'login' %}
-            <div class="d-flex gap-2 ms-auto">
+            {% elif not auth_layout_page %}
+            <div class="d-flex gap-2 ms-auto align-items-center">
+                <button type="button" class="btn filter-icon-btn" id="theme-toggle-btn" aria-label="Toggle night mode" title="Night mode">
+                    <i class="fas fa-moon"></i>
+                </button>
                 <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-sm">Sign In</a>
                 <a href="{{ url_for('register') }}" class="btn btn-primary btn-sm">Register</a>
+            </div>
+            {% else %}
+            <div class="navbar-auth-theme ms-auto">
+                <button type="button" class="btn filter-icon-btn" id="theme-toggle-btn" aria-label="Toggle night mode" title="Night mode">
+                    <i class="fas fa-moon"></i>
+                </button>
             </div>
             {% endif %}
         </div>
@@ -367,6 +462,58 @@
         }
         return body;
     };
+
+    window.CrewTrackTheme = {
+        storageKey: 'crewtrack-theme',
+        get: function() {
+            return document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light';
+        },
+        set: function(theme) {
+            var nextTheme = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-bs-theme', nextTheme);
+            localStorage.setItem(this.storageKey, nextTheme);
+            this.syncControls();
+            document.dispatchEvent(new CustomEvent('crewtrack-theme-change', { detail: { theme: nextTheme } }));
+        },
+        toggle: function() {
+            this.set(this.get() === 'dark' ? 'light' : 'dark');
+        },
+        syncControls: function() {
+            var isDark = this.get() === 'dark';
+            var checkbox = document.getElementById('theme-toggle');
+            if (checkbox) {
+                checkbox.checked = isDark;
+            }
+            document.querySelectorAll('[data-theme-icon]').forEach(function(icon) {
+                icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+            });
+        },
+        init: function() {
+            var self = this;
+            var checkbox = document.getElementById('theme-toggle');
+            if (checkbox) {
+                checkbox.checked = self.get() === 'dark';
+                checkbox.addEventListener('change', function() {
+                    self.set(checkbox.checked ? 'dark' : 'light');
+                });
+            }
+            var toggleBtn = document.getElementById('theme-toggle-btn');
+            if (toggleBtn) {
+                var icon = toggleBtn.querySelector('i');
+                if (icon) {
+                    icon.setAttribute('data-theme-icon', 'true');
+                }
+                toggleBtn.addEventListener('click', function() {
+                    self.toggle();
+                });
+            }
+            self.syncControls();
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        window.CrewTrackTheme.init();
+    });
     </script>
     {% block extra_js %}{% endblock %}
 </body>
