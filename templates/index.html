@@ -496,6 +496,9 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="shift-load-staff">
                         <i class="fas fa-users me-1"></i>Load All Active Staff
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="shift-repeat-last-week">
+                        <i class="fas fa-redo me-1"></i>Repeat Last Week
+                    </button>
                     <button type="button" class="btn btn-sm btn-outline-primary ms-auto" id="shift-print">
                         <i class="fas fa-print me-1"></i>Print Roster
                     </button>
@@ -982,6 +985,7 @@ function initWeeklyShiftRoster() {
     const printBtn = document.getElementById('shift-print');
     const addRowBtn = document.getElementById('shift-add-row');
     const loadStaffBtn = document.getElementById('shift-load-staff');
+    const repeatLastWeekBtn = document.getElementById('shift-repeat-last-week');
     const prevWeekBtn = document.getElementById('shift-week-prev');
     const nextWeekBtn = document.getElementById('shift-week-next');
     const shiftTimeModalEl = document.getElementById('shiftTimeModal');
@@ -2079,6 +2083,92 @@ function initWeeklyShiftRoster() {
         saveRoster({ silent: true }).finally(doPrint);
     }
 
+    function findRosterRowIndex(rows, sourceRow) {
+        if (sourceRow.cleaner_id) {
+            const byId = rows.findIndex(function(row) {
+                return row.cleaner_id === sourceRow.cleaner_id;
+            });
+            if (byId >= 0) return byId;
+        }
+        const normalizedName = (sourceRow.name || '').trim().toLowerCase();
+        if (!normalizedName) return -1;
+        return rows.findIndex(function(row) {
+            return row.name && row.name.trim().toLowerCase() === normalizedName;
+        });
+    }
+
+    function repeatLastWeek() {
+        rosterRows = collectRows();
+        const previousDate = parseLocalDate(currentWeekStart);
+        previousDate.setDate(previousDate.getDate() - 7);
+        const previousWeekStart = formatLocalIso(previousDate);
+        setStatus('Loading last week…', 'muted');
+
+        fetch('/api/weekly-shift-roster?week=' + encodeURIComponent(previousWeekStart))
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok) throw new Error(data.error || 'Could not load last week');
+                    return data;
+                });
+            })
+            .then(function(data) {
+                const lastRows = (data.rows || [])
+                    .map(normalizeRow)
+                    .filter(function(row) {
+                        return isAssignedRow(row);
+                    });
+
+                let copiedCount = 0;
+                lastRows.forEach(function(sourceRow) {
+                    let staff = null;
+                    if (sourceRow.cleaner_id) {
+                        staff = SHIFT_ACTIVE_STAFF.find(function(item) {
+                            return item.id === sourceRow.cleaner_id;
+                        }) || null;
+                    }
+                    if (!staff && sourceRow.name) {
+                        staff = resolveStaffByName(sourceRow.name);
+                    }
+
+                    const name = staff ? staff.name : (sourceRow.name || '').trim();
+                    const cleanerId = staff ? staff.id : sourceRow.cleaner_id;
+                    if (!name && !cleanerId) return;
+
+                    const days = sourceRow.days.map(cloneDaySlot);
+                    const targetIndex = findRosterRowIndex(rosterRows, {
+                        cleaner_id: cleanerId,
+                        name: name,
+                    });
+
+                    if (targetIndex >= 0) {
+                        rosterRows[targetIndex].name = name;
+                        rosterRows[targetIndex].cleaner_id = cleanerId;
+                        rosterRows[targetIndex].days = days;
+                    } else {
+                        rosterRows.push({
+                            _key: rowKey({}),
+                            name: name,
+                            cleaner_id: cleanerId,
+                            days: days,
+                        });
+                    }
+                    copiedCount += 1;
+                });
+
+                renderRows();
+                scheduleAutoSave();
+                if (copiedCount > 0) {
+                    setStatus('Repeated shifts for ' + copiedCount + ' staff from last week.', 'success');
+                } else {
+                    setStatus('No staff shifts found for last week.', 'muted');
+                }
+                setTimeout(function() { setStatus('', 'muted'); }, 2200);
+            })
+            .catch(function(error) {
+                setStatus(error.message || 'Could not repeat last week.', 'error');
+            });
+    }
+
     function loadWeek(weekStartIso) {
         currentWeekStart = weekStartIso;
         setStatus('Loading…', 'muted');
@@ -2403,16 +2493,19 @@ function initWeeklyShiftRoster() {
             const existingNames = new Set(rosterRows.map(function(row) { return row.name.trim().toLowerCase(); }));
             SHIFT_ACTIVE_STAFF.forEach(function(staff) {
                 if (!existingNames.has(staff.name.toLowerCase())) {
-                    rosterRows.push({
-                        name: staff.name,
-                        cleaner_id: staff.id,
-                        days: [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()],
-                    });
+                    const row = createEmptyRow();
+                    row.name = staff.name;
+                    row.cleaner_id = staff.id;
+                    rosterRows.push(row);
                 }
             });
             renderRows();
             scheduleAutoSave();
         });
+    }
+
+    if (repeatLastWeekBtn) {
+        repeatLastWeekBtn.addEventListener('click', repeatLastWeek);
     }
 
     if (printBtn) {
