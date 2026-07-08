@@ -1851,7 +1851,8 @@ function initWeeklyShiftRoster() {
 
     function saveRoster(options) {
         const opts = options || {};
-        rosterRows = collectRows();
+        const rowsToSave = collectRows();
+        rosterRows = rowsToSave;
         if (!opts.silent) {
             setStatus('Saving…', 'muted');
         }
@@ -1861,7 +1862,7 @@ function initWeeklyShiftRoster() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 week_start: currentWeekStart,
-                rows: rosterRows,
+                rows: rowsToSave,
             }),
         })
         .then(function(response) {
@@ -1872,6 +1873,11 @@ function initWeeklyShiftRoster() {
         })
         .then(function(data) {
             rosterRows = ensureMinimumRows((data.rows || []).map(normalizeRow), SHIFT_DEFAULT_ROW_COUNT);
+            if (rosterRows.length < rowsToSave.length) {
+                for (let i = rosterRows.length; i < rowsToSave.length; i += 1) {
+                    rosterRows.push(normalizeRow(rowsToSave[i]));
+                }
+            }
             renderRows();
             if (opts.silent) {
                 setStatus('Saved', 'success');

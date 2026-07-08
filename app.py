@@ -2106,17 +2106,17 @@ def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[d
         if not isinstance(row, dict):
             continue
         name = (row.get('name') or '').strip()
-        if not name:
-            continue
 
         cleaner_id = row.get('cleaner_id')
-        if cleaner_id is not None:
+        if not name:
+            cleaner_id = None
+        elif cleaner_id is not None:
             try:
                 cleaner_id = int(cleaner_id)
             except (TypeError, ValueError):
                 cleaner_id = None
-        if cleaner_id is not None and allowed_cleaner_ids is not None and cleaner_id not in allowed_cleaner_ids:
-            cleaner_id = None
+            if cleaner_id is not None and allowed_cleaner_ids is not None and cleaner_id not in allowed_cleaner_ids:
+                cleaner_id = None
 
         days_raw = row.get('days') or []
         days = []
@@ -2167,7 +2167,7 @@ def save_weekly_shift_roster(owner_id: int, week_start: date, rows: list[dict]) 
         db.session.add(roster)
     sync_roster_week_to_time_logs(owner_id, week_start, normalized)
     db.session.commit()
-    return normalized
+    return ensure_minimum_shift_roster_rows(normalized)
 
 
 def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
