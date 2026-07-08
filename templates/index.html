@@ -1069,12 +1069,31 @@ function initWeeklyShiftRoster() {
         return null;
     }
 
+    function rowKey(row) {
+        if (row._key) return row._key;
+        row._key = 'rk-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+        return row._key;
+    }
+
+    function stripRowForSave(row) {
+        return {
+            name: row.name || '',
+            cleaner_id: row.cleaner_id ?? null,
+            days: row.days,
+        };
+    }
+
     function createEmptyRow() {
         return {
+            _key: rowKey({}),
             name: '',
             cleaner_id: null,
             days: [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()],
         };
+    }
+
+    function emptyWeekDays() {
+        return createEmptyRow().days.map(normalizeDay);
     }
 
     function ensureMinimumRows(rows, minimum) {
@@ -1133,6 +1152,7 @@ function initWeeklyShiftRoster() {
         const days = Array.isArray(row.days) ? row.days.slice(0, 7) : [];
         while (days.length < 7) days.push(emptyDay());
         return {
+            _key: row._key || rowKey({}),
             name: row.name || '',
             cleaner_id: row.cleaner_id ?? null,
             days: days.map(normalizeDay),
@@ -1237,17 +1257,19 @@ function initWeeklyShiftRoster() {
         return weekDays.length + 2;
     }
 
-    function getHourlyPayMultiplierForIso(iso) {
+    function getHourlyPayMultiplierForIso(iso, rateType) {
+        if (rateType != null && normalizeRateType(rateType) !== 'hourly') return 1.0;
         if (SHIFT_SA_PUBLIC_HOLIDAYS.has(iso)) return SHIFT_PH_MULTIPLIER;
         if (parseLocalDate(iso).getDay() === 0) return SHIFT_SUNDAY_MULTIPLIER;
         return 1.0;
     }
 
-    function getDayPayMultiplier(dayIndex) {
+    function getDayPayMultiplier(dayIndex, rateType) {
         const dayMeta = weekDays[dayIndex];
         if (!dayMeta) return 1.0;
+        if (normalizeRateType(rateType) !== 'hourly') return 1.0;
         if (dayMeta.multiplier != null) return dayMeta.multiplier;
-        if (dayMeta.iso) return getHourlyPayMultiplierForIso(dayMeta.iso);
+        if (dayMeta.iso) return getHourlyPayMultiplierForIso(dayMeta.iso, rateType);
         return 1.0;
     }
 
@@ -1288,7 +1310,7 @@ function initWeeklyShiftRoster() {
 
             if (!slot.start || !slot.end) return;
             const hours = calculateShiftHours(slot.start, slot.end);
-            totalPay += hours * rateAmount * getDayPayMultiplier(dayIndex);
+            totalPay += hours * rateAmount * getDayPayMultiplier(dayIndex, rateType);
         });
 
         return Math.round(totalPay * 100) / 100;
@@ -1455,6 +1477,7 @@ function initWeeklyShiftRoster() {
 
     function appendStaffRow(row, rowIndex) {
         const tr = document.createElement('tr');
+        tr.dataset.rowKey = rowKey(row);
 
         const staffTd = document.createElement('td');
         staffTd.className = 'staff-col';
@@ -1591,29 +1614,38 @@ function initWeeklyShiftRoster() {
         hideStaffSuggestions(input);
     }
 
-    function assignStaffToRow(rowIndex, staff) {
-        const emptyDays = [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()];
-        const existingDays = (rosterRows[rowIndex] && rosterRows[rowIndex].days) || emptyDays;
-        rosterRows[rowIndex] = {
-            name: staff.name,
-            cleaner_id: staff.id,
-            days: existingDays.map(normalizeDay),
-        };
+    function assignStaffToRowByKey(key, staff) {
+        if (!key || !staff) return;
+        const row = rosterRows.find(function(item) {
+            return item._key === key;
+        });
+        if (!row) return;
+        row.name = staff.name;
+        row.cleaner_id = staff.id;
     }
 
     function commitStaffInput(input) {
-        const rowIndex = getStaffRowIndexFromInput(input);
-        const match = resolveStaffByName(input.value.trim());
+        const tr = input.closest('tr');
+        const rowKeyVal = tr ? tr.dataset.rowKey : null;
+        const typedName = input.value.trim();
+        const match = resolveStaffByName(typedName);
+        rosterRows = collectRows();
         if (match) {
             input.value = match.name;
             input.dataset.cleanerId = String(match.id);
-            rosterRows = collectRows();
-            if (rowIndex >= 0) {
-                assignStaffToRow(rowIndex, match);
-            }
+            assignStaffToRowByKey(rowKeyVal, match);
         } else {
             delete input.dataset.cleanerId;
-            rosterRows = collectRows();
+            if (!typedName && rowKeyVal) {
+                const row = rosterRows.find(function(item) {
+                    return item._key === rowKeyVal;
+                });
+                if (row) {
+                    row.name = '';
+                    row.cleaner_id = null;
+                    row.days = emptyWeekDays();
+                }
+            }
         }
         hideStaffSuggestions(input);
         renderRows();
@@ -1690,17 +1722,21 @@ function initWeeklyShiftRoster() {
         const rowIndex = parseInt(pending.rowIndex, 10);
         const emptyDays = [emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay(), emptyDay()];
         if (!isNaN(rowIndex) && rowIndex >= 0 && rowIndex < rosterRows.length) {
+            const existingRow = rosterRows[rowIndex];
             rosterRows[rowIndex] = {
+                _key: existingRow ? rowKey(existingRow) : rowKey({}),
                 name: staff.name,
                 cleaner_id: staff.id,
-                days: (rosterRows[rowIndex].days || emptyDays).map(normalizeDay),
+                days: (existingRow && existingRow.days ? existingRow.days : emptyDays).map(normalizeDay),
             };
         } else {
             const emptyIndex = rosterRows.findIndex(function(row) {
                 return !isAssignedRow(row);
             });
             const targetIndex = emptyIndex >= 0 ? emptyIndex : rosterRows.length;
+            const existingRow = rosterRows[targetIndex];
             rosterRows[targetIndex] = {
+                _key: existingRow ? rowKey(existingRow) : rowKey({}),
                 name: staff.name,
                 cleaner_id: staff.id,
                 days: emptyDays,
@@ -1762,13 +1798,24 @@ function initWeeklyShiftRoster() {
     }
 
     function collectRows() {
+        const previousByKey = {};
+        rosterRows.forEach(function(row) {
+            previousByKey[rowKey(row)] = row;
+        });
+
         const rows = [];
-        let rowIndex = 0;
+        let domRowIndex = 0;
         rosterBody.querySelectorAll('tr').forEach(function(tr) {
             if (tr.classList.contains('shift-category-header')) return;
 
             const input = tr.querySelector('.shift-staff-input');
             if (!input) return;
+
+            const key = tr.dataset.rowKey || null;
+            const previousRow = key
+                ? previousByKey[key]
+                : (rosterRows[domRowIndex] || null);
+            const resolvedKey = key || (previousRow ? rowKey(previousRow) : rowKey({}));
 
             let cleanerId = input.dataset.cleanerId ? parseInt(input.dataset.cleanerId, 10) : null;
             const typedName = input.value.trim();
@@ -1779,17 +1826,20 @@ function initWeeklyShiftRoster() {
                 staff = resolveStaffByName(typedName);
                 if (staff) cleanerId = staff.id;
             }
-            const existingDays = (rosterRows[rowIndex] && rosterRows[rowIndex].days) || [];
+            const blankDays = emptyWeekDays();
+            const keepShiftData = Boolean(staff || typedName);
+            const existingDays = keepShiftData && previousRow ? previousRow.days : blankDays;
             const days = [];
             for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
                 days.push(normalizeDay(existingDays[dayIndex]));
             }
             rows.push({
+                _key: resolvedKey,
                 name: staff ? staff.name : typedName,
                 cleaner_id: staff ? staff.id : null,
                 days: days,
             });
-            rowIndex += 1;
+            domRowIndex += 1;
         });
         return rows;
     }
@@ -1862,7 +1912,7 @@ function initWeeklyShiftRoster() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 week_start: currentWeekStart,
-                rows: rowsToSave,
+                rows: rowsToSave.map(stripRowForSave),
             }),
         })
         .then(function(response) {
@@ -2188,15 +2238,29 @@ function initWeeklyShiftRoster() {
 
         setTimeout(function() {
             if (!input.isConnected) return;
-            const match = resolveStaffByName(input.value.trim());
+            const tr = input.closest('tr');
+            const rowKeyVal = tr ? tr.dataset.rowKey : null;
+            const typedName = input.value.trim();
+            const match = resolveStaffByName(typedName);
+            rosterRows = collectRows();
             if (match) {
                 input.value = match.name;
                 input.dataset.cleanerId = String(match.id);
+                assignStaffToRowByKey(rowKeyVal, match);
             } else {
                 delete input.dataset.cleanerId;
+                if (!typedName && rowKeyVal) {
+                    const row = rosterRows.find(function(item) {
+                        return item._key === rowKeyVal;
+                    });
+                    if (row) {
+                        row.name = '';
+                        row.cleaner_id = null;
+                        row.days = emptyWeekDays();
+                    }
+                }
             }
             hideStaffSuggestions(input);
-            rosterRows = collectRows();
             renderRows();
             scheduleAutoSave();
         }, 150);

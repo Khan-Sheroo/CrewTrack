@@ -609,8 +609,10 @@ def is_sunday(work_date: date) -> bool:
     return work_date.weekday() == 6
 
 
-def get_hourly_pay_multiplier(work_date: date) -> float:
+def get_hourly_pay_multiplier(work_date: date, cleaner: "Cleaner | None" = None) -> float:
     """Return the hourly pay multiplier for a work date."""
+    if cleaner is not None and normalize_rate_type(cleaner.rate_type) != 'hourly':
+        return 1.0
     if is_sa_public_holiday(work_date):
         return PUBLIC_HOLIDAY_HOURLY_MULTIPLIER
     if is_sunday(work_date):
@@ -623,6 +625,11 @@ def split_log_hours(log: "TimeLog") -> tuple[float, float, float]:
     if normalize_log_type(log.log_type) != 'time':
         return 0.0, 0.0, 0.0
     hours = get_log_hours(log)
+    if hours <= 0:
+        return 0.0, 0.0, 0.0
+    cleaner = log.cleaner
+    if cleaner is not None and normalize_rate_type(cleaner.rate_type) != 'hourly':
+        return hours, 0.0, 0.0
     if is_sa_public_holiday(log.date):
         return 0.0, 0.0, hours
     if is_sunday(log.date):
@@ -1026,7 +1033,7 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
 
     if normalized_rate_type == 'hourly':
         quantity = get_log_hours(log)
-        multiplier = get_hourly_pay_multiplier(log.date)
+        multiplier = get_hourly_pay_multiplier(log.date, cleaner)
         effective_rate = round(rate_amount * multiplier, 2)
         if is_sa_public_holiday(log.date):
             rate_display = f"{format_money(effective_rate)}/hr (Public holiday 2x)"
@@ -2120,9 +2127,12 @@ def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[d
 
         days_raw = row.get('days') or []
         days = []
-        for index in range(7):
-            raw_day = days_raw[index] if index < len(days_raw) else None
-            days.append(normalize_shift_day(raw_day))
+        if not cleaner_id and not name:
+            days = [None] * 7
+        else:
+            for index in range(7):
+                raw_day = days_raw[index] if index < len(days_raw) else None
+                days.append(normalize_shift_day(raw_day))
 
         normalized.append({
             'name': name[:100],
@@ -2199,7 +2209,6 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
     end_time = parse_time_value(day_slot.get('end')) if day_slot.get('end') else None
     has_times = bool(start_time and end_time)
     rate_type = normalize_rate_type(cleaner.rate_type)
-    allowed = get_allowed_log_types_for_cleaner(cleaner)
 
     if rate_type == 'hourly':
         if not has_times:
@@ -2212,7 +2221,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
             'hours_worked': calculate_hours_worked(start_time, end_time),
         }
 
-    if has_times and 'time' in allowed:
+    if rate_type == 'monthly' and is_flat_monthly(cleaner) and has_times:
         return {
             'log_type': 'time',
             'entry_kind': 'worked',
