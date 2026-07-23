@@ -1314,7 +1314,7 @@ function initWeeklyShiftRoster() {
     }
 
     function rosterPrintColumnCount() {
-        return weekDays.length + 2;
+        return weekDays.length + 1;
     }
 
     function getHourlyPayMultiplierForIso(iso, rateType) {
@@ -1394,15 +1394,37 @@ function initWeeklyShiftRoster() {
         return hasPay ? Math.round(total * 100) / 100 : null;
     }
 
+    function absenceDayPay(rateType, rateAmount) {
+        if (!rateAmount || rateType === 'monthly') return null;
+        if (rateType === 'daily') return rateAmount;
+        if (rateType === 'hourly') return PAID_ABSENCE_HOURS * rateAmount;
+        return null;
+    }
+
     function calculateSiteBreakdown() {
         const buckets = {};
+        const leavePay = {
+            sick_leave: { pay: 0, hasPay: false },
+            paid_leave: { pay: 0, hasPay: false },
+        };
         rosterRows.forEach(function(row) {
             const staff = getStaffForRow(row);
             const rateType = staff ? normalizeRateType(staff.rate_type) : null;
             const rateAmount = staff && staff.rate_amount != null ? Number(staff.rate_amount) : null;
             row.days.forEach(function(day, dayIndex) {
                 const slot = normalizeDay(day);
-                if (!slot || slot.status !== 'shift') return;
+                if (!slot) return;
+
+                if (slot.status === 'sick_leave' || slot.status === 'paid_leave') {
+                    const pay = absenceDayPay(rateType, rateAmount);
+                    if (pay != null) {
+                        leavePay[slot.status].pay += pay;
+                        leavePay[slot.status].hasPay = true;
+                    }
+                    return;
+                }
+
+                if (slot.status !== 'shift') return;
 
                 const key = slot.site_id ? String(slot.site_id) : 'none';
                 if (!buckets[key]) {
@@ -1423,7 +1445,30 @@ function initWeeklyShiftRoster() {
                 }
             });
         });
-        return buckets;
+        return { buckets: buckets, leavePay: leavePay };
+    }
+
+    function appendBreakdownRow(foot, grandRow, label, hoursText, payText) {
+        const tr = document.createElement('tr');
+        tr.className = 'shift-roster-site-row';
+
+        const labelTd = document.createElement('td');
+        labelTd.colSpan = weekDays.length + 1;
+        labelTd.className = 'shift-roster-site-label';
+        labelTd.textContent = label;
+        tr.appendChild(labelTd);
+
+        const hoursTd = document.createElement('td');
+        hoursTd.className = 'hours-col';
+        hoursTd.textContent = hoursText;
+        tr.appendChild(hoursTd);
+
+        const payTd = document.createElement('td');
+        payTd.className = 'pay-col';
+        payTd.textContent = payText;
+        tr.appendChild(payTd);
+
+        foot.insertBefore(tr, grandRow);
     }
 
     function renderSiteBreakdownRows() {
@@ -1433,47 +1478,58 @@ function initWeeklyShiftRoster() {
 
         foot.querySelectorAll('.shift-roster-site-row').forEach(function(tr) { tr.remove(); });
 
-        const buckets = calculateSiteBreakdown();
+        const breakdown = calculateSiteBreakdown();
+        const buckets = breakdown.buckets;
+        const leavePay = breakdown.leavePay;
         const keys = Object.keys(buckets);
         const hasRealSite = keys.some(function(key) { return key !== 'none'; });
-        if (!hasRealSite) return;
+        const hasLeavePay = leavePay.sick_leave.hasPay || leavePay.paid_leave.hasPay;
+        if (!hasRealSite && !hasLeavePay) return;
 
-        const entries = keys.map(function(key) {
-            const bucket = buckets[key];
-            return {
-                name: bucket.siteId ? (getSiteName(bucket.siteId) || 'Unknown site') : 'No site',
-                isNone: !bucket.siteId,
-                hours: bucket.hours,
-                pay: bucket.pay,
-                hasPay: bucket.hasPay,
-            };
-        }).sort(function(a, b) {
-            if (a.isNone !== b.isNone) return a.isNone ? 1 : -1;
-            return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-        });
+        if (hasRealSite) {
+            const entries = keys.map(function(key) {
+                const bucket = buckets[key];
+                return {
+                    name: bucket.siteId ? (getSiteName(bucket.siteId) || 'Unknown site') : 'No site',
+                    isNone: !bucket.siteId,
+                    hours: bucket.hours,
+                    pay: bucket.pay,
+                    hasPay: bucket.hasPay,
+                };
+            }).sort(function(a, b) {
+                if (a.isNone !== b.isNone) return a.isNone ? 1 : -1;
+                return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+            });
 
-        entries.forEach(function(entry) {
-            const tr = document.createElement('tr');
-            tr.className = 'shift-roster-site-row';
+            entries.forEach(function(entry) {
+                appendBreakdownRow(
+                    foot,
+                    grandRow,
+                    entry.name,
+                    entry.hours > 0 ? formatWeekHours(Math.round(entry.hours * 10) / 10) : '—',
+                    entry.hasPay ? formatMoney(Math.round(entry.pay * 100) / 100) : '—'
+                );
+            });
+        }
 
-            const labelTd = document.createElement('td');
-            labelTd.colSpan = weekDays.length + 1;
-            labelTd.className = 'shift-roster-site-label';
-            labelTd.textContent = entry.name;
-            tr.appendChild(labelTd);
-
-            const hoursTd = document.createElement('td');
-            hoursTd.className = 'hours-col';
-            hoursTd.textContent = entry.hours > 0 ? formatWeekHours(Math.round(entry.hours * 10) / 10) : '—';
-            tr.appendChild(hoursTd);
-
-            const payTd = document.createElement('td');
-            payTd.className = 'pay-col';
-            payTd.textContent = entry.hasPay ? formatMoney(Math.round(entry.pay * 100) / 100) : '—';
-            tr.appendChild(payTd);
-
-            foot.insertBefore(tr, grandRow);
-        });
+        if (leavePay.sick_leave.hasPay) {
+            appendBreakdownRow(
+                foot,
+                grandRow,
+                'Sick leave pay',
+                '—',
+                formatMoney(Math.round(leavePay.sick_leave.pay * 100) / 100)
+            );
+        }
+        if (leavePay.paid_leave.hasPay) {
+            appendBreakdownRow(
+                foot,
+                grandRow,
+                'Paid leave',
+                '—',
+                formatMoney(Math.round(leavePay.paid_leave.pay * 100) / 100)
+            );
+        }
     }
 
     function updateRosterGrandTotal() {
@@ -2185,7 +2241,7 @@ function initWeeklyShiftRoster() {
                 rowHtml += '<td style="' + dayPrintStyle(day) + '">' +
                     formatDayCellPrintHtml(day) + '</td>';
             });
-            rowHtml += '<td class="hours">' + formatWeekHours(calculateRowWeekHours(row)) + '</td></tr>';
+            rowHtml += '</tr>';
             bodyRows += rowHtml;
         });
 
@@ -2194,7 +2250,6 @@ function initWeeklyShiftRoster() {
             headHtml += '<th><span class="day-label">' + escapeHtml(day.label) + '</span>' +
                 '<span class="day-date">' + escapeHtml(day.display) + '</span></th>';
         });
-        headHtml += '<th class="hours">Hours</th>';
 
         return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Weekly Shift Roster</title>' +
             '<style>' +
@@ -2207,7 +2262,6 @@ function initWeeklyShiftRoster() {
             'table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; line-height: 1.05; }' +
             'th, td { border: 1px solid #999; padding: 1px 2px; text-align: center; vertical-align: middle; }' +
             'th.staff, td.staff { text-align: left; width: 12%; }' +
-            'th.hours, td.hours { width: 6%; font-weight: 700; }' +
             'th .day-label { display: block; font-weight: 700; font-size: 7pt; }' +
             'th .day-date { display: block; font-size: 6pt; font-weight: 400; color: #555; }' +
             'tr.category-row td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
