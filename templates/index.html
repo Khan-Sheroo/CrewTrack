@@ -107,7 +107,7 @@
     .shift-roster-table .shift-staff-suggestion.create-new {
         color: #0d6efd;
         font-weight: 600;
-        border-top: 1px solid #eee;
+        border-bottom: 1px solid #eee;
     }
     .shift-roster-table .shift-remove-row {
         min-height: 1.45rem;
@@ -195,6 +195,19 @@
     .shift-day-cell.is-scheduled .shift-time-label.text-muted {
         color: #5a6fa8;
     }
+    .shift-day-cell .shift-site-label {
+        display: block;
+        font-size: 0.68rem;
+        line-height: 1.1;
+        font-weight: 600;
+        color: #495057;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    [data-bs-theme="dark"] .shift-day-cell .shift-site-label {
+        color: var(--bs-body-color);
+    }
     .shift-day-cell .shift-status-label {
         display: block;
         font-size: 0.62rem;
@@ -246,6 +259,25 @@
     }
     .shift-roster-status {
         min-height: 1.25rem;
+    }
+    .shift-roster-table tfoot tr.shift-roster-site-row td {
+        background-color: #f8f9fa;
+        vertical-align: middle;
+        padding: 0.2rem 0.35rem;
+        font-size: 0.72rem;
+    }
+    .shift-roster-table tfoot tr.shift-roster-site-row td.shift-roster-site-label {
+        text-align: right;
+        font-weight: 600;
+        color: #495057;
+    }
+    .shift-roster-table tfoot tr.shift-roster-site-row td.hours-col,
+    .shift-roster-table tfoot tr.shift-roster-site-row td.pay-col {
+        font-weight: 600;
+    }
+    [data-bs-theme="dark"] .shift-roster-table tfoot tr.shift-roster-site-row td {
+        background-color: var(--ct-surface-muted) !important;
+        color: var(--bs-body-color);
     }
     .shift-roster-table tfoot tr.shift-roster-grand-total-row td {
         background-color: #e9ecef;
@@ -340,7 +372,7 @@
         background: var(--bs-tertiary-bg);
     }
     [data-bs-theme="dark"] .shift-roster-table .shift-staff-suggestion.create-new {
-        border-top-color: var(--bs-border-color);
+        border-bottom-color: var(--bs-border-color);
     }
     [data-bs-theme="dark"] .shift-day-cell:hover {
         background-color: var(--bs-tertiary-bg);
@@ -557,9 +589,21 @@
                         <label for="shift-start-time" class="form-label">Start time</label>
                         <input type="time" class="form-control" id="shift-start-time">
                     </div>
-                    <div class="mb-0">
+                    <div class="mb-3">
                         <label for="shift-end-time" class="form-label">End time</label>
                         <input type="time" class="form-control" id="shift-end-time">
+                    </div>
+                    <div class="mb-0">
+                        <label for="shift-site-select" class="form-label">Site</label>
+                        <select class="form-select form-select-sm" id="shift-site-select">
+                            <option value="">No site</option>
+                        </select>
+                        <div class="mt-2 d-none" id="shift-site-new-wrap">
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" id="shift-site-new-name" placeholder="New site name…" autocomplete="off" spellcheck="false">
+                                <button type="button" class="btn btn-outline-primary" id="shift-site-new-save">Add</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -909,6 +953,7 @@ const SHIFT_ASSIGN_STAFF_ID = shiftRosterBootstrap.assignStaffId || null;
 const SHIFT_SA_PUBLIC_HOLIDAYS = new Set(shiftRosterBootstrap.publicHolidays || []);
 const SHIFT_SUNDAY_MULTIPLIER = shiftRosterBootstrap.sundayMultiplier || 1.5;
 const SHIFT_PH_MULTIPLIER = shiftRosterBootstrap.publicHolidayMultiplier || 2;
+let SHIFT_SITES = shiftRosterBootstrap.sites || [];
 </script>
 {% if wage_comparison.has_data %}
 <script id="wage-compare-chart-data" type="application/json">{{ wage_comparison_chart_data|tojson }}</script>
@@ -998,6 +1043,10 @@ function initWeeklyShiftRoster() {
     const shiftSetLeaveBtn = document.getElementById('shift-set-leave');
     const shiftSetSickLeaveBtn = document.getElementById('shift-set-sick-leave');
     const shiftSetPaidLeaveBtn = document.getElementById('shift-set-paid-leave');
+    const shiftSiteSelect = document.getElementById('shift-site-select');
+    const shiftSiteNewWrap = document.getElementById('shift-site-new-wrap');
+    const shiftSiteNewName = document.getElementById('shift-site-new-name');
+    const shiftSiteNewSaveBtn = document.getElementById('shift-site-new-save');
     const PAID_ABSENCE_HOURS = 8;
     if (!rosterBody) return;
 
@@ -1108,11 +1157,12 @@ function initWeeklyShiftRoster() {
         return padded;
     }
 
-    function shiftDay(start, end) {
+    function shiftDay(start, end, siteId) {
         return {
             status: 'shift',
             start: start || null,
             end: end || null,
+            site_id: siteId || null,
         };
     }
 
@@ -1148,7 +1198,7 @@ function initWeeklyShiftRoster() {
         if (status === 'leave') return leaveDay();
         if (status === 'sick_leave') return sickLeaveDay();
         if (status === 'paid_leave') return paidLeaveDay();
-        if (status === 'shift') return shiftDay(day.start || null, day.end || null);
+        if (status === 'shift') return shiftDay(day.start || null, day.end || null, day.site_id || null);
         return emptyDay();
     }
 
@@ -1193,7 +1243,7 @@ function initWeeklyShiftRoster() {
         if (slot.status === 'leave') return leaveDay();
         if (slot.status === 'sick_leave') return sickLeaveDay();
         if (slot.status === 'paid_leave') return paidLeaveDay();
-        return shiftDay(slot.start, slot.end);
+        return shiftDay(slot.start, slot.end, slot.site_id);
     }
 
     function formatDayCellHtml(day) {
@@ -1213,12 +1263,18 @@ function initWeeklyShiftRoster() {
             return crumb + '<span class="shift-status-label paid-leave">Paid Leave</span>';
         }
         if (slot.start && slot.end) {
-            return crumb + '<span class="shift-time-label">' +
-                escapeHtml(formatTimeLabel(slot.start)) + '–' +
-                escapeHtml(formatTimeLabel(slot.end)) +
-            '</span>';
+            const siteName = getSiteName(slot.site_id);
+            return crumb +
+                (siteName ? '<span class="shift-site-label">' + escapeHtml(siteName) + '</span>' : '') +
+                '<span class="shift-time-label">' +
+                    escapeHtml(formatTimeLabel(slot.start)) + '–' +
+                    escapeHtml(formatTimeLabel(slot.end)) +
+                '</span>';
         }
-        return crumb + '<span class="shift-time-label text-muted">Set times</span>';
+        const siteOnly = getSiteName(slot.site_id);
+        return crumb +
+            (siteOnly ? '<span class="shift-site-label">' + escapeHtml(siteOnly) + '</span>' : '') +
+            '<span class="shift-time-label text-muted">Set times</span>';
     }
 
     function parseTimeToMinutes(value) {
@@ -1338,12 +1394,95 @@ function initWeeklyShiftRoster() {
         return hasPay ? Math.round(total * 100) / 100 : null;
     }
 
+    function calculateSiteBreakdown() {
+        const buckets = {};
+        rosterRows.forEach(function(row) {
+            const staff = getStaffForRow(row);
+            const rateType = staff ? normalizeRateType(staff.rate_type) : null;
+            const rateAmount = staff && staff.rate_amount != null ? Number(staff.rate_amount) : null;
+            row.days.forEach(function(day, dayIndex) {
+                const slot = normalizeDay(day);
+                if (!slot || slot.status !== 'shift') return;
+
+                const key = slot.site_id ? String(slot.site_id) : 'none';
+                if (!buckets[key]) {
+                    buckets[key] = { siteId: slot.site_id || null, hours: 0, pay: 0, hasPay: false };
+                }
+                const bucket = buckets[key];
+
+                const hours = (slot.start && slot.end) ? calculateShiftHours(slot.start, slot.end) : 0;
+                bucket.hours += hours;
+
+                if (!staff || !rateAmount || rateType === 'monthly') return;
+                if (rateType === 'daily') {
+                    bucket.pay += rateAmount;
+                    bucket.hasPay = true;
+                } else if (rateType === 'hourly' && hours > 0) {
+                    bucket.pay += hours * rateAmount * getDayPayMultiplier(dayIndex, rateType);
+                    bucket.hasPay = true;
+                }
+            });
+        });
+        return buckets;
+    }
+
+    function renderSiteBreakdownRows() {
+        const foot = document.getElementById('shift-roster-foot');
+        const grandRow = foot ? foot.querySelector('.shift-roster-grand-total-row') : null;
+        if (!foot || !grandRow) return;
+
+        foot.querySelectorAll('.shift-roster-site-row').forEach(function(tr) { tr.remove(); });
+
+        const buckets = calculateSiteBreakdown();
+        const keys = Object.keys(buckets);
+        const hasRealSite = keys.some(function(key) { return key !== 'none'; });
+        if (!hasRealSite) return;
+
+        const entries = keys.map(function(key) {
+            const bucket = buckets[key];
+            return {
+                name: bucket.siteId ? (getSiteName(bucket.siteId) || 'Unknown site') : 'No site',
+                isNone: !bucket.siteId,
+                hours: bucket.hours,
+                pay: bucket.pay,
+                hasPay: bucket.hasPay,
+            };
+        }).sort(function(a, b) {
+            if (a.isNone !== b.isNone) return a.isNone ? 1 : -1;
+            return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        });
+
+        entries.forEach(function(entry) {
+            const tr = document.createElement('tr');
+            tr.className = 'shift-roster-site-row';
+
+            const labelTd = document.createElement('td');
+            labelTd.colSpan = weekDays.length + 1;
+            labelTd.className = 'shift-roster-site-label';
+            labelTd.textContent = entry.name;
+            tr.appendChild(labelTd);
+
+            const hoursTd = document.createElement('td');
+            hoursTd.className = 'hours-col';
+            hoursTd.textContent = entry.hours > 0 ? formatWeekHours(Math.round(entry.hours * 10) / 10) : '—';
+            tr.appendChild(hoursTd);
+
+            const payTd = document.createElement('td');
+            payTd.className = 'pay-col';
+            payTd.textContent = entry.hasPay ? formatMoney(Math.round(entry.pay * 100) / 100) : '—';
+            tr.appendChild(payTd);
+
+            foot.insertBefore(tr, grandRow);
+        });
+    }
+
     function updateRosterGrandTotal() {
         const labelCell = document.getElementById('shift-roster-grand-label');
         const totalEl = document.getElementById('shift-roster-grand-total');
         if (labelCell) {
             labelCell.colSpan = weekDays.length + 1;
         }
+        renderSiteBreakdownRows();
         if (totalEl) {
             totalEl.textContent = formatWeekPay(calculateRosterWeekGrandTotal());
         }
@@ -1597,7 +1736,8 @@ function initWeeklyShiftRoster() {
         if (!wrap) return;
         const list = wrap.querySelector('.shift-staff-suggestions');
         const matches = filterStaffSuggestions(input.value);
-        let html = '';
+        let html = '<li class="shift-staff-suggestion create-new" data-action="new-staff">' +
+            '+ Create new staff member…</li>';
         matches.forEach(function(staff) {
             html += '<li class="shift-staff-suggestion" data-staff-id="' + staff.id + '">' +
                 escapeHtml(staff.name) + '</li>';
@@ -1605,8 +1745,6 @@ function initWeeklyShiftRoster() {
         if (!matches.length && input.value.trim()) {
             html += '<li class="shift-staff-suggestion text-muted">No matches</li>';
         }
-        html += '<li class="shift-staff-suggestion create-new" data-action="new-staff">' +
-            '+ Create new staff member…</li>';
         list.innerHTML = html;
         list.classList.remove('d-none');
         wrap.dataset.activeSuggestion = '-1';
@@ -1852,6 +1990,33 @@ function initWeeklyShiftRoster() {
         rosterRows = collectRows();
     }
 
+    function getSiteName(siteId) {
+        if (!siteId) return null;
+        const site = SHIFT_SITES.find(function(item) { return item.id === siteId; });
+        return site ? site.name : null;
+    }
+
+    function populateSiteSelect(selectedSiteId) {
+        if (!shiftSiteSelect) return;
+        let html = '<option value="">No site</option>';
+        SHIFT_SITES.forEach(function(site) {
+            html += '<option value="' + site.id + '">' + escapeHtml(site.name) + '</option>';
+        });
+        html += '<option value="__new__">+ Create new site…</option>';
+        shiftSiteSelect.innerHTML = html;
+        shiftSiteSelect.value = selectedSiteId && getSiteName(selectedSiteId) ? String(selectedSiteId) : '';
+        if (shiftSiteNewWrap) shiftSiteNewWrap.classList.add('d-none');
+        if (shiftSiteNewName) shiftSiteNewName.value = '';
+    }
+
+    function getSelectedSiteId() {
+        if (!shiftSiteSelect) return null;
+        const value = shiftSiteSelect.value;
+        if (!value || value === '__new__') return null;
+        const parsed = parseInt(value, 10);
+        return isNaN(parsed) ? null : parsed;
+    }
+
     function openShiftTimeModal(rowIndex, dayIndex) {
         if (!shiftTimeModal) return;
         syncRowsFromDom();
@@ -1867,9 +2032,11 @@ function initWeeklyShiftRoster() {
         if (slot && slot.status === 'shift') {
             shiftStartInput.value = slot.start ? formatTimeLabel(slot.start) : '';
             shiftEndInput.value = slot.end ? formatTimeLabel(slot.end) : '';
+            populateSiteSelect(slot.site_id);
         } else {
             shiftStartInput.value = '';
             shiftEndInput.value = '';
+            populateSiteSelect(null);
         }
         shiftTimeModal.show();
         if (slot && slot.status === 'off') {
@@ -1958,7 +2125,7 @@ function initWeeklyShiftRoster() {
         }, 500);
     }
 
-    function formatDayCellText(day) {
+    function formatDayCellPrintHtml(day) {
         const slot = normalizeDay(day);
         if (!slot) return '';
         if (slot.status === 'off') return 'Off';
@@ -1966,7 +2133,11 @@ function initWeeklyShiftRoster() {
         if (slot.status === 'sick_leave') return 'Sick';
         if (slot.status === 'paid_leave') return 'Paid Leave';
         if (slot.start && slot.end) {
-            return formatTimeLabel(slot.start) + '–' + formatTimeLabel(slot.end);
+            const siteName = getSiteName(slot.site_id);
+            return (siteName ? '<span class="cell-site">' + escapeHtml(siteName) + '</span>' : '') +
+                '<span class="cell-time">' +
+                    escapeHtml(formatTimeLabel(slot.start)) + '–' + escapeHtml(formatTimeLabel(slot.end)) +
+                '</span>';
         }
         return '';
     }
@@ -2012,7 +2183,7 @@ function initWeeklyShiftRoster() {
             let rowHtml = '<tr><td class="staff">' + escapeHtml(row.name || '—') + '</td>';
             row.days.forEach(function(day) {
                 rowHtml += '<td style="' + dayPrintStyle(day) + '">' +
-                    escapeHtml(formatDayCellText(day)) + '</td>';
+                    formatDayCellPrintHtml(day) + '</td>';
             });
             rowHtml += '<td class="hours">' + formatWeekHours(calculateRowWeekHours(row)) + '</td></tr>';
             bodyRows += rowHtml;
@@ -2041,6 +2212,8 @@ function initWeeklyShiftRoster() {
             'th .day-date { display: block; font-size: 6pt; font-weight: 400; color: #555; }' +
             'tr.category-row td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
             'td.staff { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+            'td .cell-site { display: block; font-size: 7pt; font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+            'td .cell-time { display: block; font-weight: 600; white-space: nowrap; }' +
             '</style></head><body>' +
             '<div class="print-sheet">' +
             '<h1 class="print-title">Weekly Shift Roster</h1>' +
@@ -2408,7 +2581,7 @@ function initWeeklyShiftRoster() {
             }
             return false;
         }
-        applyShiftEdit(shiftDay(start, end));
+        applyShiftEdit(shiftDay(start, end, getSelectedSiteId()));
         closeShiftTimeModal();
         return true;
     }
@@ -2466,6 +2639,58 @@ function initWeeklyShiftRoster() {
         shiftTimeClearBtn.addEventListener('click', function() {
             applyShiftEdit(emptyDay());
             closeShiftTimeModal();
+        });
+    }
+
+    if (shiftSiteSelect) {
+        shiftSiteSelect.addEventListener('change', function() {
+            const isNew = shiftSiteSelect.value === '__new__';
+            if (shiftSiteNewWrap) shiftSiteNewWrap.classList.toggle('d-none', !isNew);
+            if (isNew && shiftSiteNewName) shiftSiteNewName.focus();
+        });
+    }
+
+    function createSiteFromModal() {
+        const name = shiftSiteNewName ? shiftSiteNewName.value.trim() : '';
+        if (!name) {
+            if (shiftSiteNewName) shiftSiteNewName.focus();
+            return;
+        }
+        fetch('/api/sites', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name }),
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok) throw new Error(data.error || 'Could not create site');
+                return data;
+            });
+        })
+        .then(function(data) {
+            const site = data.site;
+            if (!SHIFT_SITES.some(function(item) { return item.id === site.id; })) {
+                SHIFT_SITES.push(site);
+                SHIFT_SITES.sort(function(a, b) {
+                    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+                });
+            }
+            populateSiteSelect(site.id);
+        })
+        .catch(function(error) {
+            setStatus(error.message || 'Could not create site.', 'error');
+        });
+    }
+
+    if (shiftSiteNewSaveBtn) {
+        shiftSiteNewSaveBtn.addEventListener('click', createSiteFromModal);
+    }
+
+    if (shiftSiteNewName) {
+        shiftSiteNewName.addEventListener('keydown', function(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            createSiteFromModal();
         });
     }
 

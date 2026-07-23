@@ -338,6 +338,24 @@
                                         <span class="total-with-share">{{ category_totals.grand_total|money }} <span class="fw-normal text-muted">(100%)</span></span>
                                     </td>
                                 </tr>
+                                {% if site_breakdown %}
+                                <tr class="staff-category-header">
+                                    <td colspan="9">Site breakdown</td>
+                                </tr>
+                                {% for row in site_breakdown %}
+                                <tr class="staff-row">
+                                    <td class="staff-col"><span class="staff-name{% if row.is_none %} text-muted{% endif %}">{{ row.name }}</span></td>
+                                    <td class="category-col">{{ row.staff_count }} staff</td>
+                                    <td class="leave-col">—</td>
+                                    <td class="paid-leave-col">—</td>
+                                    <td class="sick-leave-col">—</td>
+                                    <td class="entries-col">{{ row.entries }}</td>
+                                    <td class="hours-col">{{ "%.1f"|format(row.hours) }}</td>
+                                    <td class="rate-col">—</td>
+                                    <td class="total-col">{{ row.wages|money }}</td>
+                                </tr>
+                                {% endfor %}
+                                {% endif %}
                                 {% endif %}
                             </tbody>
                         </table>

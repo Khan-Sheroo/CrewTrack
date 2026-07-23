@@ -72,6 +72,7 @@ class TimeLog(db.Model):
     entry_kind = db.Column(db.String(20), nullable=False, default='worked')
     notes = db.Column(db.Text)
     roster_week_start = db.Column(db.Date, nullable=True, index=True)
+    site_id = db.Column(db.Integer, db.ForeignKey('site.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class User(db.Model):
@@ -108,6 +109,20 @@ class WeeklyShiftRoster(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('owner_id', 'week_start', name='uq_shift_roster_owner_week'),
+    )
+
+
+class Site(db.Model):
+    """A work location that shifts and time logs can be assigned to."""
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    time_logs = db.relationship('TimeLog', backref='site', lazy=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('owner_id', 'name', name='uq_site_owner_name'),
     )
 
 
@@ -283,6 +298,119 @@ def get_cleaner_for_owner(cleaner_id: int, owner_id: int | None = None):
     if owner_id is None:
         return None
     return cleaners_query().filter_by(id=cleaner_id).first()
+
+
+def sites_query():
+    """Site query scoped to the logged-in account."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return Site.query.filter(db.false())
+    return Site.query.filter_by(owner_id=owner_id)
+
+
+def get_sites_for_owner(owner_id: int | None = None) -> list[dict]:
+    """Return active sites for the account, sorted by name."""
+    owner_id = owner_id if owner_id is not None else get_current_owner_id()
+    if owner_id is None:
+        return []
+    sites = (
+        Site.query.filter_by(owner_id=owner_id, active=True)
+        .order_by(Site.name.asc())
+        .all()
+    )
+    return [{'id': site.id, 'name': site.name} for site in sites]
+
+
+def _estimate_log_wage(log: "TimeLog", flat_monthly_entry_counts: dict) -> float:
+    """Estimate the wage attributable to a single worked log.
+
+    Hourly staff use their tracked hours with premiums; daily staff earn the
+    daily rate per shift; monthly staff are pro-rated per worked day (flat
+    monthly salaries are split evenly across their worked shifts in the
+    period so site totals still sum to the full salary).
+    """
+    cleaner = log.cleaner
+    if cleaner is None:
+        return 0.0
+    rate_type, rate_amount = get_cleaner_rate_config(cleaner, log.date)
+    normalized = normalize_rate_type(rate_type)
+    if normalized == 'hourly':
+        regular_hours, sunday_hours, public_holiday_hours = split_log_hours(log)
+        return calculate_hourly_pay(
+            regular_hours, sunday_hours, public_holiday_hours, rate_amount
+        )
+    if normalized == 'daily':
+        return round(rate_amount, 2)
+    if is_flat_monthly(cleaner):
+        entry_count = flat_monthly_entry_counts.get(cleaner.id, 0)
+        return rate_amount / entry_count if entry_count else 0.0
+    return rate_amount / float(get_rate_days_in_month(log.date))
+
+
+def get_site_breakdown(
+    filter_year=None,
+    filter_month=None,
+    date_from=None,
+    date_to=None,
+) -> list[dict]:
+    """Aggregate worked shifts, hours, and wages per site for the period.
+
+    Returns an empty list when no logs in the period have a site assigned.
+    """
+    query = _filter_timelog_query(
+        timelogs_query(),
+        filter_year=filter_year,
+        filter_month=filter_month,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    worked_logs = [
+        log for log in query.all()
+        if normalize_entry_kind(getattr(log, 'entry_kind', None)) == 'worked'
+    ]
+
+    flat_monthly_entry_counts: dict = {}
+    for log in worked_logs:
+        cleaner = log.cleaner
+        if cleaner is not None and is_flat_monthly(cleaner):
+            flat_monthly_entry_counts[cleaner.id] = (
+                flat_monthly_entry_counts.get(cleaner.id, 0) + 1
+            )
+
+    buckets: dict = {}
+    for log in worked_logs:
+        site = log.site
+        key = site.id if site else None
+        if key not in buckets:
+            buckets[key] = {
+                'name': site.name if site else 'No site',
+                'is_none': site is None,
+                'entries': 0,
+                'hours': 0.0,
+                'wages': 0.0,
+                'staff': set(),
+            }
+        buckets[key]['entries'] += 1
+        buckets[key]['hours'] += get_tracked_hours_for_report(log)
+        buckets[key]['wages'] += _estimate_log_wage(log, flat_monthly_entry_counts)
+        buckets[key]['staff'].add(log.cleaner_id)
+
+    if not any(key is not None for key in buckets):
+        return []
+
+    rows = [
+        {
+            'name': bucket['name'],
+            'is_none': bucket['is_none'],
+            'entries': bucket['entries'],
+            'hours': round(bucket['hours'], 1),
+            'wages': round(bucket['wages'], 2),
+            'staff_count': len(bucket['staff']),
+        }
+        for bucket in buckets.values()
+    ]
+    rows.sort(key=lambda row: (row['is_none'], row['name'].lower()))
+    return rows
 
 
 def get_time_log_for_owner(log_id: int):
@@ -699,6 +827,8 @@ def ensure_time_log_schema() -> None:
         db.session.execute(
             db.text("ALTER TABLE time_log ADD COLUMN entry_kind VARCHAR(20) NOT NULL DEFAULT 'worked'")
         )
+    if 'site_id' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN site_id INTEGER"))
 
     db.session.commit()
 
@@ -2062,12 +2192,25 @@ def normalize_shift_time_value(value) -> str | None:
     return parsed.strftime('%H:%M') if parsed else None
 
 
-def normalize_shift_day(raw_day) -> dict | None:
+def _normalize_site_id_value(value, allowed_site_ids: set | None = None):
+    """Coerce a site id to int, dropping values not in the allowed set."""
+    if value is None:
+        return None
+    try:
+        site_id = int(value)
+    except (TypeError, ValueError):
+        return None
+    if allowed_site_ids is not None and site_id not in allowed_site_ids:
+        return None
+    return site_id
+
+
+def normalize_shift_day(raw_day, allowed_site_ids: set | None = None) -> dict | None:
     """Normalize a single day slot from legacy booleans or structured payloads."""
     if raw_day is None or raw_day is False:
         return None
     if raw_day is True:
-        return {'status': 'shift', 'start': None, 'end': None}
+        return {'status': 'shift', 'start': None, 'end': None, 'site_id': None}
     if not isinstance(raw_day, dict):
         return None
 
@@ -2079,13 +2222,13 @@ def normalize_shift_day(raw_day) -> dict | None:
 
     status = str(status).strip().lower()
     if status == 'off':
-        return {'status': 'off', 'start': None, 'end': None}
+        return {'status': 'off', 'start': None, 'end': None, 'site_id': None}
     if status == 'leave':
-        return {'status': 'leave', 'start': None, 'end': None}
+        return {'status': 'leave', 'start': None, 'end': None, 'site_id': None}
     if status == 'sick_leave':
-        return {'status': 'sick_leave', 'start': None, 'end': None}
+        return {'status': 'sick_leave', 'start': None, 'end': None, 'site_id': None}
     if status == 'paid_leave':
-        return {'status': 'paid_leave', 'start': None, 'end': None}
+        return {'status': 'paid_leave', 'start': None, 'end': None, 'site_id': None}
     if status != 'shift':
         return None
 
@@ -2093,6 +2236,7 @@ def normalize_shift_day(raw_day) -> dict | None:
         'status': 'shift',
         'start': normalize_shift_time_value(raw_day.get('start')),
         'end': normalize_shift_time_value(raw_day.get('end')),
+        'site_id': _normalize_site_id_value(raw_day.get('site_id'), allowed_site_ids),
     }
 
 
@@ -2102,10 +2246,15 @@ def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[d
         return []
 
     allowed_cleaner_ids = None
+    allowed_site_ids = None
     if owner_id is not None:
         allowed_cleaner_ids = {
             row[0] for row in cleaners_query().filter_by(owner_id=owner_id, active=True)
             .with_entities(Cleaner.id).all()
+        }
+        allowed_site_ids = {
+            row[0] for row in Site.query.filter_by(owner_id=owner_id)
+            .with_entities(Site.id).all()
         }
 
     normalized = []
@@ -2132,7 +2281,7 @@ def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[d
         else:
             for index in range(7):
                 raw_day = days_raw[index] if index < len(days_raw) else None
-                days.append(normalize_shift_day(raw_day))
+                days.append(normalize_shift_day(raw_day, allowed_site_ids))
 
         normalized.append({
             'name': name[:100],
@@ -2209,6 +2358,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
     end_time = parse_time_value(day_slot.get('end')) if day_slot.get('end') else None
     has_times = bool(start_time and end_time)
     rate_type = normalize_rate_type(cleaner.rate_type)
+    site_id = _normalize_site_id_value(day_slot.get('site_id'))
 
     if rate_type == 'hourly':
         if not has_times:
@@ -2219,6 +2369,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
             'start_time': start_time,
             'end_time': end_time,
             'hours_worked': calculate_hours_worked(start_time, end_time),
+            'site_id': site_id,
         }
 
     if rate_type == 'monthly' and is_flat_monthly(cleaner) and has_times:
@@ -2228,6 +2379,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
             'start_time': start_time,
             'end_time': end_time,
             'hours_worked': calculate_hours_worked(start_time, end_time),
+            'site_id': site_id,
         }
 
     hours_worked = calculate_hours_worked(start_time, end_time) if has_times else None
@@ -2237,6 +2389,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
         'start_time': start_time,
         'end_time': end_time,
         'hours_worked': hours_worked,
+        'site_id': site_id,
     }
 
 
@@ -2247,6 +2400,7 @@ def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
     log.start_time = payload.get('start_time')
     log.end_time = payload.get('end_time')
     log.hours_worked = payload.get('hours_worked')
+    log.site_id = payload.get('site_id')
 
 
 def sync_roster_week_to_time_logs(owner_id: int, week_start: date, rows: list[dict]) -> None:
@@ -2306,6 +2460,7 @@ def sync_roster_week_to_time_logs(owner_id: int, week_start: date, rows: list[di
             start_time=payload.get('start_time'),
             end_time=payload.get('end_time'),
             hours_worked=payload.get('hours_worked'),
+            site_id=payload.get('site_id'),
         ))
 
 
@@ -2340,6 +2495,7 @@ def build_shift_roster_bootstrap_data(
     shift_week_days: list[dict],
     assign_staff_id: str | None,
     shift_sa_public_holidays: list[str],
+    shift_sites: list[dict] | None = None,
 ) -> dict:
     """Return initial roster state for the dashboard JavaScript."""
     return {
@@ -2353,6 +2509,7 @@ def build_shift_roster_bootstrap_data(
         'publicHolidays': shift_sa_public_holidays,
         'sundayMultiplier': SUNDAY_HOURLY_MULTIPLIER,
         'publicHolidayMultiplier': PUBLIC_HOLIDAY_HOURLY_MULTIPLIER,
+        'sites': shift_sites or [],
     }
 
 
@@ -2863,6 +3020,7 @@ def index():
         shift_week_days=shift_week_days,
         assign_staff_id=request.args.get('assign_staff'),
         shift_sa_public_holidays=shift_sa_public_holidays,
+        shift_sites=get_sites_for_owner(owner_id) if owner_id else [],
     )
     return render_template(
         'index.html',
@@ -3027,6 +3185,43 @@ def save_weekly_shift_roster_api():
         'week_start': week_start.isoformat(),
         'rows': normalized,
     })
+
+
+@app.route('/api/sites', methods=['GET'])
+def list_sites_api():
+    """Return the account's active sites."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return jsonify({'error': 'Not authenticated'}), 401
+    return jsonify({'sites': get_sites_for_owner(owner_id)})
+
+
+@app.route('/api/sites', methods=['POST'])
+def create_site_api():
+    """Create a new site for the account (or return the existing one by name)."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get('name') or '').strip()[:100]
+    if not name:
+        return jsonify({'error': 'Site name is required'}), 400
+
+    existing = Site.query.filter(
+        Site.owner_id == owner_id,
+        db.func.lower(Site.name) == name.lower(),
+    ).first()
+    if existing:
+        if not existing.active:
+            existing.active = True
+            db.session.commit()
+        return jsonify({'success': True, 'site': {'id': existing.id, 'name': existing.name}})
+
+    site = Site(owner_id=owner_id, name=name)
+    db.session.add(site)
+    db.session.commit()
+    return jsonify({'success': True, 'site': {'id': site.id, 'name': site.name}})
 
 
 @app.route('/log-staff', methods=['POST'])
@@ -3259,6 +3454,12 @@ def weekly_totals():
         date_from=filter_date_from,
         date_to=filter_date_to,
     )
+    site_breakdown = get_site_breakdown(
+        filter_year=filter_year,
+        filter_month=filter_month,
+        date_from=filter_date_from,
+        date_to=filter_date_to,
+    )
 
     years, months = get_tenant_log_year_month_options()
 
@@ -3283,6 +3484,7 @@ def weekly_totals():
         filter_query_string=filter_query_string,
         available_years=years,
         available_months=months,
+        site_breakdown=site_breakdown,
     )
 
 def _parse_date_arg(value):
@@ -3378,6 +3580,12 @@ def monthly_totals():
         date_to=filter_date_to,
         pay_basis=filter_pay_basis,
     )
+    site_breakdown = get_site_breakdown(
+        filter_year=filter_year,
+        filter_month=filter_month,
+        date_from=filter_date_from,
+        date_to=filter_date_to,
+    )
     
     years, months = get_tenant_log_year_month_options()
 
@@ -3401,7 +3609,8 @@ def monthly_totals():
                          show_staff_month_breakdown=show_staff_month_breakdown,
                          filter_query_string=filter_query_string,
                          available_years=years,
-                         available_months=months)
+                         available_months=months,
+                         site_breakdown=site_breakdown)
 
 
 @app.route('/invoices')
