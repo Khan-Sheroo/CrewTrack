@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, session, send_file, abort
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date, time, timedelta
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -590,7 +590,7 @@ def calculate_hours_worked(start_time: time, end_time: time) -> float:
 SUNDAY_HOURLY_MULTIPLIER = 1.5
 PUBLIC_HOLIDAY_HOURLY_MULTIPLIER = 2.0
 PAID_ABSENCE_HOURS = 8.0
-PAID_ABSENCE_KINDS = frozenset({'sick_leave', 'paid_leave'})
+PAID_ABSENCE_KINDS = frozenset({'leave', 'sick_leave', 'paid_leave'})
 ABSENCE_KINDS = frozenset({'leave', 'sick_leave', 'paid_leave'})
 
 
@@ -607,12 +607,12 @@ def normalize_entry_kind(entry_kind: str | None) -> str:
 
 
 def is_paid_absence_log(log: "TimeLog") -> bool:
-    """Return True when a log represents paid sick or paid leave."""
+    """Return True when a log represents PH, paid sick or paid leave."""
     return normalize_entry_kind(getattr(log, 'entry_kind', None)) in PAID_ABSENCE_KINDS
 
 
 def is_unpaid_leave_log(log: "TimeLog") -> bool:
-    """Return True when a log represents unpaid leave."""
+    """Return True when a log represents a PH day (stored as entry kind 'leave')."""
     return normalize_entry_kind(getattr(log, 'entry_kind', None)) == 'leave'
 
 
@@ -638,6 +638,7 @@ def accumulate_log_in_period_bucket(bucket: dict, log: "TimeLog") -> None:
         bucket['paid_leave_days'] = bucket.get('paid_leave_days', 0) + 1
         return
     if entry_kind == 'leave':
+        add_paid_absence_to_bucket(bucket, log)
         bucket['leave_days'] = bucket.get('leave_days', 0) + 1
         return
     bucket['entries'] += 1
@@ -1129,7 +1130,10 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
         time_window = f"{log.start_time.strftime('%H:%M')} - {log.end_time.strftime('%H:%M')}"
 
     if is_paid_absence_log(log):
-        kind_label = 'Sick leave' if normalize_entry_kind(log.entry_kind) == 'sick_leave' else 'Paid leave'
+        kind_label = {
+            'leave': 'PH',
+            'sick_leave': 'Sick leave',
+        }.get(normalize_entry_kind(log.entry_kind), 'Paid leave')
         if normalized_rate_type == 'hourly':
             quantity = PAID_ABSENCE_HOURS
             line_total = round(quantity * rate_amount, 2)
@@ -2221,10 +2225,11 @@ def normalize_shift_day(raw_day, allowed_site_ids: set | None = None) -> dict | 
         return None
 
     status = str(status).strip().lower()
+    requested = bool(raw_day.get('requested'))
     if status == 'off':
-        return {'status': 'off', 'start': None, 'end': None, 'site_id': None}
+        return {'status': 'off', 'start': None, 'end': None, 'site_id': None, 'requested': requested}
     if status == 'leave':
-        return {'status': 'leave', 'start': None, 'end': None, 'site_id': None}
+        return {'status': 'leave', 'start': None, 'end': None, 'site_id': None, 'requested': requested}
     if status == 'sick_leave':
         return {'status': 'sick_leave', 'start': None, 'end': None, 'site_id': None}
     if status == 'paid_leave':
@@ -3043,7 +3048,90 @@ def index():
         shift_week_days=shift_week_days,
         shift_roster_rows=shift_roster_rows,
         shift_roster_bootstrap_data=shift_roster_bootstrap_data,
+        company_logo_url=get_company_logo_url(owner_id),
     )
+
+
+COMPANY_LOGO_DIR = os.path.join(app.root_path, 'uploads', 'logos')
+# SVG is excluded because it can carry scripts when served from this origin.
+COMPANY_LOGO_EXTENSIONS = ('png', 'jpg', 'jpeg', 'gif', 'webp')
+COMPANY_LOGO_MAX_BYTES = 2 * 1024 * 1024
+
+
+def find_company_logo_path(owner_id: int | None) -> str | None:
+    """Return the stored logo file path for an account, if one exists."""
+    if not owner_id:
+        return None
+    for extension in COMPANY_LOGO_EXTENSIONS:
+        path = os.path.join(COMPANY_LOGO_DIR, f'owner_{owner_id}.{extension}')
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def get_company_logo_url(owner_id: int | None) -> str | None:
+    """Return a cache-busted URL for the account's logo, or None."""
+    path = find_company_logo_path(owner_id)
+    if not path:
+        return None
+    return url_for('company_logo', v=int(os.path.getmtime(path)))
+
+
+def remove_company_logo_files(owner_id: int) -> None:
+    """Delete every stored logo file for an account."""
+    for extension in COMPANY_LOGO_EXTENSIONS:
+        path = os.path.join(COMPANY_LOGO_DIR, f'owner_{owner_id}.{extension}')
+        if os.path.isfile(path):
+            os.remove(path)
+
+
+@app.route('/company-logo', methods=['GET'])
+def company_logo():
+    """Serve the logged-in account's company logo."""
+    path = find_company_logo_path(get_current_owner_id())
+    if not path:
+        abort(404)
+    return send_file(path, max_age=0)
+
+
+@app.route('/company-logo', methods=['POST'])
+def upload_company_logo():
+    """Upload or replace the logged-in account's company logo."""
+    owner_id = get_current_owner_id()
+    if not owner_id:
+        return jsonify({'error': 'Not logged in.'}), 401
+
+    upload = request.files.get('logo')
+    if not upload or not upload.filename:
+        return jsonify({'error': 'Choose an image to upload.'}), 400
+
+    extension = upload.filename.rsplit('.', 1)[-1].lower() if '.' in upload.filename else ''
+    if extension not in COMPANY_LOGO_EXTENSIONS:
+        return jsonify({'error': 'Logo must be a PNG, JPG, GIF or WEBP image.'}), 400
+    if not (upload.mimetype or '').startswith('image/'):
+        return jsonify({'error': 'Logo must be an image file.'}), 400
+
+    data = upload.read(COMPANY_LOGO_MAX_BYTES + 1)
+    if len(data) > COMPANY_LOGO_MAX_BYTES:
+        return jsonify({'error': 'Logo must be 2 MB or smaller.'}), 400
+    if not data:
+        return jsonify({'error': 'The uploaded file is empty.'}), 400
+
+    os.makedirs(COMPANY_LOGO_DIR, exist_ok=True)
+    remove_company_logo_files(owner_id)
+    with open(os.path.join(COMPANY_LOGO_DIR, f'owner_{owner_id}.{extension}'), 'wb') as handle:
+        handle.write(data)
+    return jsonify({'url': get_company_logo_url(owner_id)})
+
+
+@app.route('/company-logo/delete', methods=['POST'])
+def delete_company_logo():
+    """Remove the logged-in account's company logo."""
+    owner_id = get_current_owner_id()
+    if not owner_id:
+        return jsonify({'error': 'Not logged in.'}), 401
+    remove_company_logo_files(owner_id)
+    return jsonify({'url': None})
 
 
 @app.route('/manage')
@@ -3801,7 +3889,7 @@ def monthly_totals_pdf():
     
     # Prepare table data
     table_data = [[
-        'FOH Staff', 'Category', 'Unpaid Leave', 'Paid Leave', 'Sick Leave',
+        'FOH Staff', 'Category', 'PH', 'Paid Leave', 'Sick Leave',
         'Shifts', 'Hours Logged', 'Rate', 'Total',
     ]]
     

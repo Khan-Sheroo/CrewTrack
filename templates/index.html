@@ -158,6 +158,28 @@
         background-color: rgb(65 105 225 / 32%);
         box-shadow: inset 0 0 0 1px rgb(65 105 225 / 50%);
     }
+    .shift-day-cell.is-scheduled.is-eight-hour,
+    .shift-day-cell.is-scheduled.is-eight-hour:hover {
+        background-color: #ffcccc;
+        color: #000;
+    }
+    .shift-day-cell.is-scheduled.is-ten-hour,
+    .shift-day-cell.is-scheduled.is-ten-hour:hover {
+        background-color: #f7caac;
+        color: #000;
+    }
+    .shift-day-cell.is-scheduled.is-noon-to-eight,
+    .shift-day-cell.is-scheduled.is-noon-to-eight:hover {
+        background-color: #d0cece;
+        box-shadow: none;
+        color: #000;
+    }
+    .shift-day-cell.is-scheduled.is-ten-to-six,
+    .shift-day-cell.is-scheduled.is-ten-to-six:hover {
+        background-color: #fff;
+        box-shadow: none;
+        color: #000;
+    }
     .shift-day-cell.is-off,
     .shift-day-cell.is-leave,
     .shift-day-cell.is-sick-leave,
@@ -176,9 +198,73 @@
         background-color: rgb(248 215 218 / 28%);
         box-shadow: inset 0 0 0 1px rgb(220 53 69 / 35%);
     }
-    .shift-day-cell.is-paid-leave {
-        background-color: rgb(209 231 221 / 28%);
-        box-shadow: inset 0 0 0 1px rgb(25 135 84 / 35%);
+    .shift-day-cell.is-leave,
+    .shift-day-cell.is-leave:hover {
+        background-color: #d1e7dd;
+        box-shadow: inset 0 0 0 1px #a3cfbb;
+    }
+    .shift-day-cell.is-paid-leave,
+    .shift-day-cell.is-paid-leave:hover {
+        background-color: #cfe8fc;
+        box-shadow: inset 0 0 0 1px #9fcdf3;
+    }
+    .shift-day-cell {
+        user-select: none;
+    }
+    .company-logo-block {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 180px;
+        height: 72px;
+        border: 2px dashed var(--bs-border-color);
+        border-radius: 0.375rem;
+        cursor: pointer;
+        overflow: hidden;
+        background: var(--bs-body-bg);
+    }
+    .company-logo-block:hover {
+        border-color: #0d6efd;
+    }
+    .company-logo-block.has-logo {
+        border-style: solid;
+        border-color: transparent;
+    }
+    .company-logo-block.has-logo:hover {
+        border-color: var(--bs-border-color);
+    }
+    .company-logo-block img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+    .company-logo-placeholder {
+        font-size: 0.8rem;
+        color: var(--bs-secondary-color);
+    }
+    .company-logo-remove {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 0.55rem;
+        display: none;
+        background-color: var(--bs-body-bg);
+    }
+    .company-logo-block.has-logo:hover .company-logo-remove {
+        display: block;
+    }
+    .shift-day-cell.shift-selected {
+        outline: 2px solid #0d6efd;
+        outline-offset: -2px;
+    }
+    .shift-day-cell.shift-copy-source {
+        outline: 2px dashed #0d6efd;
+        outline-offset: -3px;
+    }
+    .shift-day-cell.shift-copy-source.shift-selected {
+        outline-style: double;
+        outline-width: 3px;
     }
     .shift-day-cell .shift-check {
         color: #198754;
@@ -189,15 +275,27 @@
         font-size: 0.62rem;
         line-height: 1.05;
         font-weight: 600;
-        color: #1e3a8a;
+        color: #000;
         white-space: nowrap;
     }
     .shift-day-cell.is-scheduled .shift-time-label.text-muted {
         color: #5a6fa8;
     }
+    .shift-day-cell .shift-time-line {
+        display: flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 0.1rem;
+        min-width: 0;
+    }
+    .shift-day-cell .shift-time-line .shift-time-label {
+        flex: 0 0 auto;
+    }
     .shift-day-cell .shift-site-label {
         display: block;
-        font-size: 0.68rem;
+        flex: 0 1 auto;
+        min-width: 0;
+        font-size: 0.62rem;
         line-height: 1.1;
         font-weight: 600;
         color: #495057;
@@ -220,13 +318,16 @@
         color: #6c757d;
     }
     .shift-day-cell .shift-status-label.leave {
-        color: #997404;
+        color: #146c43;
     }
     .shift-day-cell .shift-status-label.sick-leave {
         color: #b02a37;
     }
     .shift-day-cell .shift-status-label.paid-leave {
-        color: #146c43;
+        color: #1f5f8b;
+    }
+    .shift-day-cell .shift-status-label.is-requested {
+        color: #dc3545;
     }
     .shift-drag-crumb {
         position: absolute;
@@ -378,7 +479,27 @@
         background-color: var(--bs-tertiary-bg);
     }
     [data-bs-theme="dark"] .shift-day-cell .shift-time-label {
-        color: #9ec5fe;
+        color: #fff;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-eight-hour,
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-eight-hour:hover {
+        background-color: rgb(255 204 204 / 30%);
+        color: #fff;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-ten-hour,
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-ten-hour:hover {
+        background-color: rgb(247 202 172 / 30%);
+        color: #fff;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-noon-to-eight,
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-noon-to-eight:hover {
+        background-color: rgb(208 206 206 / 30%);
+        color: #fff;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-ten-to-six,
+    [data-bs-theme="dark"] .shift-day-cell.is-scheduled.is-ten-to-six:hover {
+        background-color: transparent;
+        color: #fff;
     }
     [data-bs-theme="dark"] .shift-day-cell.is-scheduled .shift-time-label.text-muted {
         color: #6ea8fe;
@@ -386,19 +507,35 @@
     [data-bs-theme="dark"] .shift-roster-table tfoot .shift-roster-grand-label {
         color: var(--bs-body-color);
     }
-    [data-bs-theme="dark"] .shift-day-cell.is-sick-leave,
-    [data-bs-theme="dark"] .shift-day-cell.is-paid-leave {
+    [data-bs-theme="dark"] .shift-day-cell.is-sick-leave {
         background-color: rgb(255 243 205 / 22%);
         box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
     }
-    [data-bs-theme="dark"] .shift-day-cell.is-sick-leave:hover,
-    [data-bs-theme="dark"] .shift-day-cell.is-paid-leave:hover {
+    [data-bs-theme="dark"] .shift-day-cell.is-sick-leave:hover {
         background-color: rgb(255 243 205 / 32%);
         box-shadow: inset 0 0 0 1px rgb(255 243 205 / 50%);
     }
-    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.sick-leave,
-    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.paid-leave {
+    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.sick-leave {
         color: #997404;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-leave,
+    [data-bs-theme="dark"] .shift-day-cell.is-leave:hover {
+        background-color: rgb(25 135 84 / 28%);
+        box-shadow: inset 0 0 0 1px rgb(25 135 84 / 50%);
+    }
+    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.leave {
+        color: #75b798;
+    }
+    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.is-requested {
+        color: #ff6b6b;
+    }
+    [data-bs-theme="dark"] .shift-day-cell.is-paid-leave,
+    [data-bs-theme="dark"] .shift-day-cell.is-paid-leave:hover {
+        background-color: rgb(207 232 252 / 25%);
+        box-shadow: inset 0 0 0 1px rgb(159 205 243 / 50%);
+    }
+    [data-bs-theme="dark"] .shift-day-cell .shift-status-label.paid-leave {
+        color: #cfe8fc;
     }
     @media (max-width: 767.98px) {
         .shift-roster-table th.staff-col,
@@ -521,6 +658,14 @@
                 </div>
             </div>
             <div class="card-body">
+                <div class="company-logo-block mb-3{% if company_logo_url %} has-logo{% endif %}" id="company-logo-block" title="Click to upload your company logo">
+                    <img id="company-logo-img" alt="Company logo" src="{{ company_logo_url or '' }}"{% if not company_logo_url %} hidden{% endif %}>
+                    <span class="company-logo-placeholder" id="company-logo-placeholder"{% if company_logo_url %} hidden{% endif %}>
+                        <i class="fas fa-image me-1"></i>Add company logo
+                    </span>
+                    <button type="button" class="btn-close company-logo-remove" id="company-logo-remove" aria-label="Remove logo" title="Remove logo"></button>
+                    <input type="file" id="company-logo-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+                </div>
                 <div class="d-flex flex-wrap gap-2 mb-3 shift-roster-toolbar">
                     <button type="button" class="btn btn-sm btn-outline-primary" id="shift-add-row">
                         <i class="fas fa-user-plus me-1"></i>Add Staff Row
@@ -575,9 +720,13 @@
             </div>
             <div class="modal-body">
                 <p class="small text-muted mb-3" id="shift-time-context"></p>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="shift-requested">
+                    <label class="form-check-label small" for="shift-requested">Requested by staff (Off / PH shown in red)</label>
+                </div>
                 <div class="d-flex gap-2 mb-2 flex-wrap">
                     <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" id="shift-set-off">Off</button>
-                    <button type="button" class="btn btn-sm btn-outline-warning flex-fill" id="shift-set-leave">Unpaid Leave</button>
+                    <button type="button" class="btn btn-sm btn-outline-success flex-fill" id="shift-set-leave">PH</button>
                 </div>
                 <div class="d-flex gap-2 mb-3 flex-wrap">
                     <button type="button" class="btn btn-sm btn-outline-danger flex-fill" id="shift-set-sick-leave">Sick Leave</button>
@@ -587,11 +736,12 @@
                 <div id="shift-time-fields">
                     <div class="mb-3">
                         <label for="shift-start-time" class="form-label">Start time</label>
-                        <input type="time" class="form-control" id="shift-start-time">
+                        <input type="text" class="form-control" id="shift-start-time" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="e.g. 8 or 0730">
                     </div>
                     <div class="mb-3">
                         <label for="shift-end-time" class="form-label">End time</label>
-                        <input type="time" class="form-control" id="shift-end-time">
+                        <input type="text" class="form-control" id="shift-end-time" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="e.g. 6 or 1800">
+                        <div class="form-text">Type with the number pad: 8 = 08:00, 1730 = 17:30. Enter moves to the next field and saves.</div>
                     </div>
                     <div class="mb-0">
                         <label for="shift-site-select" class="form-label">Site</label>
@@ -1041,6 +1191,7 @@ function initWeeklyShiftRoster() {
     const shiftTimeClearBtn = document.getElementById('shift-time-clear');
     const shiftSetOffBtn = document.getElementById('shift-set-off');
     const shiftSetLeaveBtn = document.getElementById('shift-set-leave');
+    const shiftRequestedInput = document.getElementById('shift-requested');
     const shiftSetSickLeaveBtn = document.getElementById('shift-set-sick-leave');
     const shiftSetPaidLeaveBtn = document.getElementById('shift-set-paid-leave');
     const shiftSiteSelect = document.getElementById('shift-site-select');
@@ -1065,6 +1216,8 @@ function initWeeklyShiftRoster() {
     let saveInFlight = null;
     let activeShiftEdit = null;
     let shiftDragSource = null;
+    let selectedShiftCell = null;
+    let shiftClipboard = null;
 
     function clearShiftDropTargets() {
         rosterBody.querySelectorAll('.shift-drop-target').forEach(function(cell) {
@@ -1166,12 +1319,12 @@ function initWeeklyShiftRoster() {
         };
     }
 
-    function offDay() {
-        return { status: 'off', start: null, end: null };
+    function offDay(requested) {
+        return { status: 'off', start: null, end: null, requested: !!requested };
     }
 
-    function leaveDay() {
-        return { status: 'leave', start: null, end: null };
+    function leaveDay(requested) {
+        return { status: 'leave', start: null, end: null, requested: !!requested };
     }
 
     function sickLeaveDay() {
@@ -1194,8 +1347,8 @@ function initWeeklyShiftRoster() {
         }
 
         const status = day.status || (day.scheduled ? 'shift' : null);
-        if (status === 'off') return offDay();
-        if (status === 'leave') return leaveDay();
+        if (status === 'off') return offDay(day.requested);
+        if (status === 'leave') return leaveDay(day.requested);
         if (status === 'sick_leave') return sickLeaveDay();
         if (status === 'paid_leave') return paidLeaveDay();
         if (status === 'shift') return shiftDay(day.start || null, day.end || null, day.site_id || null);
@@ -1218,6 +1371,10 @@ function initWeeklyShiftRoster() {
         let className = 'shift-day-cell day-col';
         if (!slot) return className;
         if (slot.status === 'shift') className += ' is-scheduled';
+        if (isEightHourShift(slot)) className += ' is-eight-hour';
+        if (isTenHourShift(slot)) className += ' is-ten-hour';
+        if (isTenToSixShift(slot)) className += ' is-ten-to-six';
+        if (isNoonToEightShift(slot)) className += ' is-noon-to-eight';
         if (slot.status === 'off') className += ' is-off';
         if (slot.status === 'leave') className += ' is-leave';
         if (slot.status === 'sick_leave') className += ' is-sick-leave';
@@ -1239,8 +1396,8 @@ function initWeeklyShiftRoster() {
     function cloneDaySlot(day) {
         const slot = normalizeDay(day);
         if (!slot) return emptyDay();
-        if (slot.status === 'off') return offDay();
-        if (slot.status === 'leave') return leaveDay();
+        if (slot.status === 'off') return offDay(slot.requested);
+        if (slot.status === 'leave') return leaveDay(slot.requested);
         if (slot.status === 'sick_leave') return sickLeaveDay();
         if (slot.status === 'paid_leave') return paidLeaveDay();
         return shiftDay(slot.start, slot.end, slot.site_id);
@@ -1250,11 +1407,12 @@ function initWeeklyShiftRoster() {
         const slot = normalizeDay(day);
         if (!slot) return '';
         const crumb = shiftDragCrumbHtml();
+        const requestedClass = slot.requested ? ' is-requested' : '';
         if (slot.status === 'off') {
-            return crumb + '<span class="shift-status-label off">Off</span>';
+            return crumb + '<span class="shift-status-label off' + requestedClass + '">Off</span>';
         }
         if (slot.status === 'leave') {
-            return crumb + '<span class="shift-status-label leave">Unpaid</span>';
+            return crumb + '<span class="shift-status-label leave' + requestedClass + '">PH</span>';
         }
         if (slot.status === 'sick_leave') {
             return crumb + '<span class="shift-status-label sick-leave">Sick</span>';
@@ -1265,16 +1423,20 @@ function initWeeklyShiftRoster() {
         if (slot.start && slot.end) {
             const siteName = getSiteName(slot.site_id);
             return crumb +
-                (siteName ? '<span class="shift-site-label">' + escapeHtml(siteName) + '</span>' : '') +
-                '<span class="shift-time-label">' +
-                    escapeHtml(formatTimeLabel(slot.start)) + '–' +
-                    escapeHtml(formatTimeLabel(slot.end)) +
+                '<span class="shift-time-line">' +
+                    '<span class="shift-time-label">' +
+                        escapeHtml(formatTimeLabel(slot.start)) + '–' +
+                        escapeHtml(formatTimeLabel(slot.end)) +
+                    '</span>' +
+                    (siteName ? '<span class="shift-site-label">' + escapeHtml(siteName) + '</span>' : '') +
                 '</span>';
         }
         const siteOnly = getSiteName(slot.site_id);
         return crumb +
-            (siteOnly ? '<span class="shift-site-label">' + escapeHtml(siteOnly) + '</span>' : '') +
-            '<span class="shift-time-label text-muted">Set times</span>';
+            '<span class="shift-time-line">' +
+                '<span class="shift-time-label text-muted">Set times</span>' +
+                (siteOnly ? '<span class="shift-site-label">' + escapeHtml(siteOnly) + '</span>' : '') +
+            '</span>';
     }
 
     function parseTimeToMinutes(value) {
@@ -1295,6 +1457,31 @@ function initWeeklyShiftRoster() {
         return Math.round((diff / 60) * 100) / 100;
     }
 
+    function isTenToSixShift(slot) {
+        return !!slot && slot.status === 'shift' &&
+            formatTimeLabel(slot.start) === '10:00' && formatTimeLabel(slot.end) === '18:00';
+    }
+
+    function isNoonToEightShift(slot) {
+        return !!slot && slot.status === 'shift' &&
+            formatTimeLabel(slot.start) === '12:00' && formatTimeLabel(slot.end) === '20:00';
+    }
+
+    function getColouredShiftHours(slot) {
+        if (!slot || slot.status !== 'shift' || !slot.start || !slot.end) return 0;
+        if (isTenToSixShift(slot) || isNoonToEightShift(slot)) return 0;
+        return calculateShiftHours(slot.start, slot.end);
+    }
+
+    function isEightHourShift(slot) {
+        const hours = getColouredShiftHours(slot);
+        return hours >= 8 && hours < 10;
+    }
+
+    function isTenHourShift(slot) {
+        return getColouredShiftHours(slot) >= 10;
+    }
+
     function calculateRowWeekHours(row) {
         let total = 0;
         row.days.forEach(function(day) {
@@ -1311,10 +1498,6 @@ function initWeeklyShiftRoster() {
 
     function rosterColumnCount() {
         return weekDays.length + 3;
-    }
-
-    function rosterPrintColumnCount() {
-        return weekDays.length + 1;
     }
 
     function getHourlyPayMultiplierForIso(iso, rateType) {
@@ -1352,7 +1535,7 @@ function initWeeklyShiftRoster() {
             const slot = normalizeDay(day);
             if (!slot) return;
 
-            if (slot.status === 'sick_leave' || slot.status === 'paid_leave') {
+            if (isPaidAbsenceStatus(slot.status)) {
                 if (rateType === 'daily') {
                     totalPay += rateAmount;
                 } else if (rateType === 'hourly') {
@@ -1394,6 +1577,10 @@ function initWeeklyShiftRoster() {
         return hasPay ? Math.round(total * 100) / 100 : null;
     }
 
+    function isPaidAbsenceStatus(status) {
+        return status === 'leave' || status === 'sick_leave' || status === 'paid_leave';
+    }
+
     function absenceDayPay(rateType, rateAmount) {
         if (!rateAmount || rateType === 'monthly') return null;
         if (rateType === 'daily') return rateAmount;
@@ -1404,6 +1591,7 @@ function initWeeklyShiftRoster() {
     function calculateSiteBreakdown() {
         const buckets = {};
         const leavePay = {
+            leave: { pay: 0, hasPay: false },
             sick_leave: { pay: 0, hasPay: false },
             paid_leave: { pay: 0, hasPay: false },
         };
@@ -1415,7 +1603,7 @@ function initWeeklyShiftRoster() {
                 const slot = normalizeDay(day);
                 if (!slot) return;
 
-                if (slot.status === 'sick_leave' || slot.status === 'paid_leave') {
+                if (isPaidAbsenceStatus(slot.status)) {
                     const pay = absenceDayPay(rateType, rateAmount);
                     if (pay != null) {
                         leavePay[slot.status].pay += pay;
@@ -1483,7 +1671,7 @@ function initWeeklyShiftRoster() {
         const leavePay = breakdown.leavePay;
         const keys = Object.keys(buckets);
         const hasRealSite = keys.some(function(key) { return key !== 'none'; });
-        const hasLeavePay = leavePay.sick_leave.hasPay || leavePay.paid_leave.hasPay;
+        const hasLeavePay = leavePay.leave.hasPay || leavePay.sick_leave.hasPay || leavePay.paid_leave.hasPay;
         if (!hasRealSite && !hasLeavePay) return;
 
         if (hasRealSite) {
@@ -1512,6 +1700,15 @@ function initWeeklyShiftRoster() {
             });
         }
 
+        if (leavePay.leave.hasPay) {
+            appendBreakdownRow(
+                foot,
+                grandRow,
+                'PH pay',
+                '—',
+                formatMoney(Math.round(leavePay.leave.pay * 100) / 100)
+            );
+        }
         if (leavePay.sick_leave.hasPay) {
             appendBreakdownRow(
                 foot,
@@ -1692,6 +1889,12 @@ function initWeeklyShiftRoster() {
         row.days.forEach(function(day, dayIndex) {
             const dayTd = document.createElement('td');
             dayTd.className = dayCellClass(day);
+            if (shiftClipboard && shiftClipboard.rowKey === rowKey(row) && shiftClipboard.dayIndex === dayIndex) {
+                dayTd.classList.add('shift-copy-source');
+            }
+            if (selectedShiftCell && selectedShiftCell.rowKey === rowKey(row) && selectedShiftCell.dayIndex === dayIndex) {
+                dayTd.classList.add('shift-selected');
+            }
             dayTd.dataset.rowIndex = String(rowIndex);
             dayTd.dataset.dayIndex = String(dayIndex);
             dayTd.innerHTML = formatDayCellHtml(day);
@@ -2094,6 +2297,7 @@ function initWeeklyShiftRoster() {
             shiftEndInput.value = '';
             populateSiteSelect(null);
         }
+        if (shiftRequestedInput) shiftRequestedInput.checked = !!(slot && slot.requested);
         shiftTimeModal.show();
         if (slot && slot.status === 'off') {
             if (shiftSetOffBtn) shiftSetOffBtn.focus();
@@ -2174,37 +2378,130 @@ function initWeeklyShiftRoster() {
         return saveInFlight;
     }
 
-    function scheduleAutoSave() {
+    const UNDO_LIMIT = 100;
+    let undoStack = [];
+    let redoStack = [];
+
+    function takeRosterSnapshot() {
+        const rows = sortRowsForDisplay(rosterRows.map(normalizeRow)).map(function(row) {
+            return { _key: rowKey(row), name: row.name, cleaner_id: row.cleaner_id, days: row.days.map(cloneDaySlot) };
+        });
+        const signature = JSON.stringify(rows.map(function(row) {
+            return [row.name, row.cleaner_id, row.days];
+        }));
+        return { rows: rows, signature: signature };
+    }
+
+    function resetUndoHistory() {
+        undoStack = [takeRosterSnapshot()];
+        redoStack = [];
+    }
+
+    function recordUndoState() {
+        const snapshot = takeRosterSnapshot();
+        const top = undoStack[undoStack.length - 1];
+        if (top && top.signature === snapshot.signature) return;
+        undoStack.push(snapshot);
+        if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+        redoStack = [];
+    }
+
+    function restoreRosterSnapshot(snapshot) {
+        rosterRows = snapshot.rows.map(function(row) {
+            return normalizeRow({ _key: row._key, name: row.name, cleaner_id: row.cleaner_id, days: row.days });
+        });
+        shiftClipboard = null;
+        renderRows();
+        scheduleAutoSave({ skipHistory: true });
+    }
+
+    function undoRosterChange() {
+        if (undoStack.length < 2) {
+            setStatus('Nothing to undo.', 'muted');
+            return;
+        }
+        redoStack.push(undoStack.pop());
+        restoreRosterSnapshot(undoStack[undoStack.length - 1]);
+        setStatus('Undone.', 'muted');
+    }
+
+    function redoRosterChange() {
+        if (!redoStack.length) {
+            setStatus('Nothing to redo.', 'muted');
+            return;
+        }
+        const snapshot = redoStack.pop();
+        undoStack.push(snapshot);
+        restoreRosterSnapshot(snapshot);
+        setStatus('Redone.', 'muted');
+    }
+
+    function scheduleAutoSave(options) {
+        if (!(options && options.skipHistory)) recordUndoState();
         clearTimeout(saveTimer);
         saveTimer = setTimeout(function() {
             saveRoster({ silent: true });
         }, 500);
     }
 
+    function formatPrintTimeRange(start, end) {
+        const startMinutes = parseTimeToMinutes(start);
+        const endMinutes = parseTimeToMinutes(end);
+        if (startMinutes === null || endMinutes === null) {
+            return formatTimeLabel(start) + ' - ' + formatTimeLabel(end);
+        }
+        if (startMinutes % 60 === 0 && endMinutes % 60 === 0) {
+            const toTwelveHour = function(minutes) {
+                return String((Math.floor(minutes / 60) % 12) || 12);
+            };
+            return toTwelveHour(startMinutes) + ' - ' + toTwelveHour(endMinutes);
+        }
+        const toClock = function(minutes) {
+            return Math.floor(minutes / 60) + ':' + String(minutes % 60).padStart(2, '0');
+        };
+        return toClock(startMinutes) + ' - ' + toClock(endMinutes);
+    }
+
     function formatDayCellPrintHtml(day) {
         const slot = normalizeDay(day);
         if (!slot) return '';
-        if (slot.status === 'off') return 'Off';
-        if (slot.status === 'leave') return 'Unpaid Leave';
-        if (slot.status === 'sick_leave') return 'Sick';
-        if (slot.status === 'paid_leave') return 'Paid Leave';
+        if (slot.status === 'off') return 'OFF';
+        if (slot.status === 'leave') return 'PH';
+        if (slot.status === 'sick_leave') return 'SICK';
+        if (slot.status === 'paid_leave') return 'PAID LEAVE';
         if (slot.start && slot.end) {
             const siteName = getSiteName(slot.site_id);
-            return (siteName ? '<span class="cell-site">' + escapeHtml(siteName) + '</span>' : '') +
-                '<span class="cell-time">' +
-                    escapeHtml(formatTimeLabel(slot.start)) + '–' + escapeHtml(formatTimeLabel(slot.end)) +
-                '</span>';
+            return escapeHtml(formatPrintTimeRange(slot.start, slot.end)) +
+                (siteName ? ' ' + escapeHtml(siteName) : '');
         }
         return '';
+    }
+
+    function formatPrintWeekTitle() {
+        const days = weekDays.length ? weekDays : buildWeekDays(currentWeekStart);
+        const start = parseLocalDate(days[0].iso);
+        const end = parseLocalDate(days[days.length - 1].iso);
+        const monthName = function(date) {
+            return date.toLocaleDateString('en-GB', { month: 'long' });
+        };
+        if (start.getMonth() === end.getMonth()) {
+            return start.getDate() + ' - ' + end.getDate() + ' ' + monthName(end);
+        }
+        return start.getDate() + ' ' + monthName(start) + ' - ' + end.getDate() + ' ' + monthName(end);
     }
 
     function dayPrintStyle(day) {
         const slot = normalizeDay(day);
         if (!slot) return '';
-        if (slot.status === 'off') return 'background:#eee;color:#000;';
-        if (slot.status === 'leave') return 'background:#f5f5f5;color:#000;';
+        const textColor = slot.requested ? '#dc3545' : '#000';
+        if (slot.status === 'off') return 'background:#eee;color:' + textColor + ';';
+        if (slot.status === 'leave') return 'background:#d1e7dd;color:' + textColor + ';';
         if (slot.status === 'sick_leave') return 'background:#f8d7da;color:#000;';
-        if (slot.status === 'paid_leave') return 'background:#d1e7dd;color:#000;';
+        if (slot.status === 'paid_leave') return 'background:#cfe8fc;color:#000;';
+        if (isTenToSixShift(slot)) return 'background:#fff;color:#000;';
+        if (isNoonToEightShift(slot)) return 'background:#d0cece;color:#000;';
+        if (isTenHourShift(slot)) return 'background:#f7caac;color:#000;';
+        if (isEightHourShift(slot)) return 'background:#ffcccc;color:#000;';
         return 'color:#000;';
     }
 
@@ -2223,20 +2520,23 @@ function initWeeklyShiftRoster() {
 
     function buildRosterPrintHtml() {
         const printableRows = getPrintableRows();
-        const groupActive = shouldGroupRosterRows(printableRows);
-        const weekRange = formatWeekRange(currentWeekStart);
+        const printDayLabels = ['MON', 'TUES', 'WED', 'THURS', 'FRI', 'SAT', 'SUN'];
+        const columnCount = weekDays.length + 2;
         let bodyRows = '';
-        let lastGroup = null;
+        let lastDepartment = null;
 
         printableRows.forEach(function(row) {
-            const group = getRowDisplayGroup(row);
-            if (groupActive && isAssignedRow(row) && group && group !== lastGroup) {
-                bodyRows +=
-                    '<tr class="category-row"><td colspan="' + rosterPrintColumnCount() + '">' + escapeHtml(group) + '</td></tr>';
-                lastGroup = group;
+            const department = getRowDisplayGroup(row) || '';
+            if (lastDepartment !== null && department !== lastDepartment) {
+                bodyRows += '<tr class="department-break"><td colspan="' + columnCount + '"></td></tr>';
             }
+            lastDepartment = department;
 
-            let rowHtml = '<tr><td class="staff">' + escapeHtml(row.name || '—') + '</td>';
+            const staff = getStaffForRow(row);
+            const jobTitle = staff ? (staff.category || staff.group || '') : '';
+            let rowHtml = '<tr>' +
+                '<td class="job-title">' + escapeHtml(jobTitle) + '</td>' +
+                '<td class="staff">' + escapeHtml(row.name || '') + '</td>';
             row.days.forEach(function(day) {
                 rowHtml += '<td style="' + dayPrintStyle(day) + '">' +
                     formatDayCellPrintHtml(day) + '</td>';
@@ -2245,36 +2545,67 @@ function initWeeklyShiftRoster() {
             bodyRows += rowHtml;
         });
 
-        let headHtml = '<th class="staff">Staff</th>';
-        weekDays.forEach(function(day) {
-            headHtml += '<th><span class="day-label">' + escapeHtml(day.label) + '</span>' +
-                '<span class="day-date">' + escapeHtml(day.display) + '</span></th>';
+        let dayNameCells = '';
+        let dayDateCells = '';
+        weekDays.forEach(function(day, index) {
+            dayNameCells += '<th>' + escapeHtml(printDayLabels[index] || day.label.toUpperCase()) + '</th>';
+            dayDateCells += '<th class="day-date">' + (day.iso ? parseLocalDate(day.iso).getDate() : '') + '</th>';
         });
+        const headHtml =
+            '<tr><th class="job-title" rowspan="2">TITLE</th><th class="staff" rowspan="2">NAME</th>' + dayNameCells + '</tr>' +
+            '<tr>' + dayDateCells + '</tr>';
 
-        return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Weekly Shift Roster</title>' +
+        return '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>FOH Duty Roster</title>' +
             '<style>' +
-            '@page { size: landscape; margin: 0; }' +
-            '* { box-sizing: border-box; }' +
+            '@page { size: landscape; margin: 0 20mm; }' +
+            '* { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
             'html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #000; background: #fff; }' +
-            '.print-sheet { border: 10px solid #000; margin: 0; padding: 6px; min-height: 100vh; background: #fff; }' +
-            '.print-title { margin: 0 0 2px; font-size: 11pt; font-weight: 700; }' +
-            '.print-week { margin: 0 0 6px; font-size: 8pt; color: #444; }' +
-            'table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 7pt; line-height: 1.05; }' +
-            'th, td { border: 1px solid #999; padding: 1px 2px; text-align: center; vertical-align: middle; }' +
-            'th.staff, td.staff { text-align: left; width: 12%; }' +
-            'th .day-label { display: block; font-weight: 700; font-size: 7pt; }' +
-            'th .day-date { display: block; font-size: 6pt; font-weight: 400; color: #555; }' +
-            'tr.category-row td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
-            'td.staff { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            'td .cell-site { display: block; font-size: 7pt; font-weight: 600; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            'td .cell-time { display: block; font-weight: 600; white-space: nowrap; }' +
+            '.print-sheet { margin: 0; padding: 12px 0; background: #fff; }' +
+            '.print-header { position: relative; display: flex; align-items: center; justify-content: center; min-height: 40px; margin-bottom: 8px; }' +
+            '.print-logo { position: absolute; left: 0; top: 50%; transform: translateY(-50%); max-width: 140px; max-height: 48px; object-fit: contain; }' +
+            '.print-title { margin: 0; font-size: 15pt; font-weight: 700; text-align: center; }' +
+            'table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; line-height: 1.15; }' +
+            'th, td { border: 1px solid #000; padding: 4px 3px; text-align: center; vertical-align: middle; }' +
+            'thead th { font-weight: 700; font-size: 9pt; }' +
+            'thead th.day-date { font-weight: 700; padding: 2px 3px; }' +
+            'th.job-title, td.job-title { width: 13%; text-align: left; }' +
+            'th.staff, td.staff { width: 11%; text-align: left; }' +
+            'td.job-title, td.staff { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+            'tbody td { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
+            'tr.department-break td { background: #fff; height: 8px; padding: 0; }' +
             '</style></head><body>' +
             '<div class="print-sheet">' +
-            '<h1 class="print-title">Weekly Shift Roster</h1>' +
-            '<p class="print-week">' + escapeHtml(weekRange) + '</p>' +
-            '<table><thead><tr>' + headHtml + '</tr></thead><tbody>' +
-            (bodyRows || '<tr><td colspan="' + rosterPrintColumnCount() + '">No shifts scheduled</td></tr>') +
+            '<div class="print-header">' +
+                buildPrintLogoHtml() +
+                '<h1 class="print-title">FOH Duty Roster ' + escapeHtml(formatPrintWeekTitle()) + '</h1>' +
+            '</div>' +
+            '<table><thead>' + headHtml + '</thead><tbody>' +
+            (bodyRows || '<tr><td colspan="' + columnCount + '">No shifts scheduled</td></tr>') +
             '</tbody></table></div></body></html>';
+    }
+
+    function buildPrintLogoHtml() {
+        const logoImg = document.getElementById('company-logo-img');
+        if (!logoImg || logoImg.hidden || !logoImg.getAttribute('src')) return '';
+        const absoluteSrc = new URL(logoImg.getAttribute('src'), window.location.href).href;
+        return '<img class="print-logo" alt="" src="' + escapeHtml(absoluteSrc) + '">';
+    }
+
+    function waitForPrintImages(printDocument, callback) {
+        const pending = Array.from(printDocument.images).filter(function(img) { return !img.complete; });
+        if (!pending.length) {
+            callback();
+            return;
+        }
+        let remaining = pending.length;
+        const done = function() {
+            remaining -= 1;
+            if (remaining === 0) callback();
+        };
+        pending.forEach(function(img) {
+            img.addEventListener('load', done, { once: true });
+            img.addEventListener('error', done, { once: true });
+        });
     }
 
     function openRosterPrintWindow() {
@@ -2294,9 +2625,11 @@ function initWeeklyShiftRoster() {
 
         const printTarget = iframe.contentWindow;
         printTarget.focus();
-        setTimeout(function() {
-            printTarget.print();
-        }, 150);
+        waitForPrintImages(printDocument, function() {
+            setTimeout(function() {
+                printTarget.print();
+            }, 150);
+        });
     }
 
     function printRoster() {
@@ -2411,6 +2744,7 @@ function initWeeklyShiftRoster() {
                 weekDays = normalizeWeekDays(data.days || buildWeekDays(currentWeekStart));
                 rosterRows = ensureMinimumRows((data.rows || []).map(normalizeRow), SHIFT_DEFAULT_ROW_COUNT);
                 render();
+                resetUndoHistory();
                 setStatus('', 'muted');
                 const url = new URL(window.location.href);
                 url.searchParams.set('week', currentWeekStart);
@@ -2434,7 +2768,7 @@ function initWeeklyShiftRoster() {
 
         const dayCell = event.target.closest('.shift-day-cell');
         if (dayCell) {
-            openShiftTimeModal(parseInt(dayCell.dataset.rowIndex, 10), parseInt(dayCell.dataset.dayIndex, 10));
+            selectShiftCell(dayCell);
             return;
         }
 
@@ -2623,21 +2957,213 @@ function initWeeklyShiftRoster() {
         finishShiftDragCopy();
     });
 
+    rosterBody.addEventListener('dblclick', function(event) {
+        if (event.target.closest('.shift-drag-crumb')) return;
+        const dayCell = event.target.closest('.shift-day-cell');
+        if (!dayCell) return;
+        selectShiftCell(dayCell);
+        openShiftTimeModal(parseInt(dayCell.dataset.rowIndex, 10), parseInt(dayCell.dataset.dayIndex, 10));
+    });
+
+    function selectShiftCell(cell) {
+        const rowIndex = parseInt(cell.dataset.rowIndex, 10);
+        const row = rosterRows[rowIndex];
+        if (!row) return;
+        selectedShiftCell = { rowKey: rowKey(row), dayIndex: parseInt(cell.dataset.dayIndex, 10) };
+        rosterBody.querySelectorAll('.shift-selected').forEach(function(item) {
+            item.classList.remove('shift-selected');
+        });
+        cell.classList.add('shift-selected');
+        window.getSelection && window.getSelection().removeAllRanges();
+    }
+
+    function clearShiftSelection() {
+        selectedShiftCell = null;
+        rosterBody.querySelectorAll('.shift-selected').forEach(function(item) {
+            item.classList.remove('shift-selected');
+        });
+    }
+
+    function getSelectedShiftRow() {
+        if (!selectedShiftCell) return null;
+        syncRowsFromDom();
+        return rosterRows.find(function(row) {
+            return rowKey(row) === selectedShiftCell.rowKey;
+        }) || null;
+    }
+
+    function isTypingTarget(element) {
+        if (!element) return false;
+        const tag = element.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element.isContentEditable;
+    }
+
+    function copySelectedShiftCell() {
+        const row = getSelectedShiftRow();
+        if (!row) return false;
+        const slot = normalizeDay(row.days[selectedShiftCell.dayIndex]);
+        if (!slot) {
+            setStatus('Nothing to copy in that cell.', 'muted');
+            return false;
+        }
+        shiftClipboard = {
+            slot: cloneDaySlot(slot),
+            rowKey: rowKey(row),
+            dayIndex: selectedShiftCell.dayIndex,
+        };
+        renderRows();
+        setStatus('Cell copied. Click another cell and press Ctrl+V to paste.', 'muted');
+        return true;
+    }
+
+    function pasteIntoSelectedShiftCell() {
+        const row = getSelectedShiftRow();
+        if (!row) return false;
+        if (!row.name && !row.cleaner_id) {
+            setStatus('Pick a staff member for that row before pasting.', 'error');
+            return false;
+        }
+        row.days[selectedShiftCell.dayIndex] = cloneDaySlot(shiftClipboard.slot);
+        renderRows();
+        scheduleAutoSave();
+        return true;
+    }
+
+    document.addEventListener('keydown', function(event) {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+        const key = event.key.toLowerCase();
+        if (key !== 'c' && key !== 'v') return;
+        if (!selectedShiftCell || isTypingTarget(document.activeElement)) return;
+        if (document.querySelector('.modal.show')) return;
+
+        if (key === 'c') {
+            if (copySelectedShiftCell()) event.preventDefault();
+            return;
+        }
+        if (!shiftClipboard) return;
+        if (pasteIntoSelectedShiftCell()) event.preventDefault();
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+        const key = event.key.toLowerCase();
+        const isUndo = key === 'z' && !event.shiftKey;
+        const isRedo = key === 'y' || (key === 'z' && event.shiftKey);
+        if (!isUndo && !isRedo) return;
+        if (isTypingTarget(document.activeElement)) return;
+        if (document.querySelector('.modal.show')) return;
+        event.preventDefault();
+        if (isUndo) {
+            undoRosterChange();
+        } else {
+            redoRosterChange();
+        }
+    });
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key !== 'Escape') return;
+        if (document.querySelector('.modal.show')) return;
+        if (!shiftClipboard && !selectedShiftCell) return;
+        shiftClipboard = null;
+        clearShiftSelection();
+        renderRows();
+        setStatus('', 'muted');
+    });
+
+    document.addEventListener('click', function(event) {
+        if (!selectedShiftCell) return;
+        if (event.target.closest('.shift-day-cell') || event.target.closest('.modal')) return;
+        clearShiftSelection();
+    });
+
+    function parseTypedTime(raw) {
+        const value = String(raw || '').trim();
+        if (!value) return null;
+        let hours;
+        let minutes;
+        const separated = value.match(/^(\d{1,2})[:.](\d{1,2})$/);
+        if (separated) {
+            hours = parseInt(separated[1], 10);
+            minutes = parseInt(separated[2], 10);
+        } else if (/^\d{1,4}$/.test(value)) {
+            if (value.length <= 2) {
+                hours = parseInt(value, 10);
+                minutes = 0;
+            } else {
+                hours = parseInt(value.slice(0, value.length - 2), 10);
+                minutes = parseInt(value.slice(-2), 10);
+            }
+        } else {
+            return null;
+        }
+        if (hours === 24 && minutes === 0) hours = 0;
+        if (hours > 23 || minutes > 59) return null;
+        return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+    }
+
+    function typedTimeHasExplicitHour(raw) {
+        const digits = String(raw || '').trim().split(/[:.]/)[0];
+        const hourText = digits.length > 2 ? digits.slice(0, digits.length - 2) : digits;
+        return hourText.length === 2 || parseInt(hourText, 10) >= 12;
+    }
+
+    function resolveEndTime(start, endRaw) {
+        const end = parseTypedTime(endRaw);
+        if (!start || !end || typedTimeHasExplicitHour(endRaw)) return end;
+        const startMinutes = parseTimeToMinutes(start);
+        const endMinutes = parseTimeToMinutes(end);
+        // "10" to "6" means 10:00-18:00, but "22" to "6" stays an overnight shift.
+        if (endMinutes <= startMinutes && endMinutes + 12 * 60 > startMinutes) {
+            return formatMinutesAsTime(endMinutes + 12 * 60);
+        }
+        return end;
+    }
+
+    function formatMinutesAsTime(totalMinutes) {
+        const hours = Math.floor(totalMinutes / 60) % 24;
+        const minutes = totalMinutes % 60;
+        return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+    }
+
+    function normalizeTimeInput(input) {
+        const parsed = parseTypedTime(input.value);
+        if (parsed) input.value = parsed;
+        return parsed;
+    }
+
     function saveShiftTimes() {
-        const start = shiftStartInput.value.trim();
-        const end = shiftEndInput.value.trim();
-        if (!start || !end) {
+        const startRaw = shiftStartInput.value.trim();
+        const endRaw = shiftEndInput.value.trim();
+        if (!startRaw || !endRaw) {
             setStatus('Enter both start and end times.', 'error');
-            if (!start) {
+            if (!startRaw) {
                 shiftStartInput.focus();
             } else {
                 shiftEndInput.focus();
             }
             return false;
         }
+        const start = parseTypedTime(startRaw);
+        if (!start) {
+            setStatus('Start time not recognised. Try 8, 0730 or 17:30.', 'error');
+            shiftStartInput.focus();
+            return false;
+        }
+        const end = resolveEndTime(start, endRaw);
+        if (!end) {
+            setStatus('End time not recognised. Try 6, 1600 or 20:30.', 'error');
+            shiftEndInput.focus();
+            return false;
+        }
+        shiftStartInput.value = start;
+        shiftEndInput.value = end;
         applyShiftEdit(shiftDay(start, end, getSelectedSiteId()));
         closeShiftTimeModal();
         return true;
+    }
+
+    function isRequestedChecked() {
+        return !!(shiftRequestedInput && shiftRequestedInput.checked);
     }
 
     function applyQuickDayStatus(slot) {
@@ -2651,13 +3177,13 @@ function initWeeklyShiftRoster() {
 
     if (shiftSetOffBtn) {
         shiftSetOffBtn.addEventListener('click', function() {
-            applyQuickDayStatus(offDay());
+            applyQuickDayStatus(offDay(isRequestedChecked()));
         });
     }
 
     if (shiftSetLeaveBtn) {
         shiftSetLeaveBtn.addEventListener('click', function() {
-            applyQuickDayStatus(leaveDay());
+            applyQuickDayStatus(leaveDay(isRequestedChecked()));
         });
     }
 
@@ -2673,11 +3199,26 @@ function initWeeklyShiftRoster() {
         });
     }
 
+    [shiftStartInput, shiftEndInput].forEach(function(input) {
+        if (!input) return;
+        input.addEventListener('input', function() {
+            const cleaned = input.value.replace(/[^\d:.]/g, '');
+            if (cleaned !== input.value) input.value = cleaned;
+        });
+        input.addEventListener('focus', function() {
+            input.select();
+        });
+    });
+
     if (shiftStartInput) {
         shiftStartInput.addEventListener('keydown', function(event) {
             if (event.key !== 'Enter') return;
             event.preventDefault();
+            normalizeTimeInput(shiftStartInput);
             shiftEndInput.focus();
+        });
+        shiftStartInput.addEventListener('blur', function() {
+            normalizeTimeInput(shiftStartInput);
         });
     }
 
@@ -2686,6 +3227,12 @@ function initWeeklyShiftRoster() {
             if (event.key !== 'Enter') return;
             event.preventDefault();
             saveShiftTimes();
+        });
+        shiftEndInput.addEventListener('blur', function() {
+            const start = parseTypedTime(shiftStartInput.value);
+            if (!start) return;
+            const end = resolveEndTime(start, shiftEndInput.value);
+            if (end) shiftEndInput.value = end;
         });
     }
 
@@ -2794,10 +3341,71 @@ function initWeeklyShiftRoster() {
     if (prevWeekBtn) prevWeekBtn.addEventListener('click', function() { shiftWeek(-7); });
     if (nextWeekBtn) nextWeekBtn.addEventListener('click', function() { shiftWeek(7); });
 
+    const companyLogoBlock = document.getElementById('company-logo-block');
+    const companyLogoImg = document.getElementById('company-logo-img');
+    const companyLogoPlaceholder = document.getElementById('company-logo-placeholder');
+    const companyLogoInput = document.getElementById('company-logo-input');
+    const companyLogoRemoveBtn = document.getElementById('company-logo-remove');
+
+    function showCompanyLogo(url) {
+        if (!companyLogoBlock) return;
+        companyLogoBlock.classList.toggle('has-logo', !!url);
+        companyLogoImg.hidden = !url;
+        companyLogoPlaceholder.hidden = !!url;
+        if (url) {
+            companyLogoImg.src = url;
+        } else {
+            companyLogoImg.removeAttribute('src');
+        }
+    }
+
+    function sendCompanyLogoRequest(url, body) {
+        return fetch(url, { method: 'POST', body: body })
+            .then(function(response) {
+                return response.json().then(function(data) {
+                    if (!response.ok) throw new Error(data.error || 'Could not update logo.');
+                    return data;
+                });
+            })
+            .then(function(data) {
+                showCompanyLogo(data.url);
+            })
+            .catch(function(error) {
+                setStatus(error.message || 'Could not update logo.', 'error');
+            });
+    }
+
+    if (companyLogoBlock) {
+        companyLogoBlock.addEventListener('click', function(event) {
+            if (event.target.closest('.company-logo-remove') || event.target === companyLogoInput) return;
+            companyLogoInput.click();
+        });
+
+        companyLogoInput.addEventListener('change', function() {
+            const file = companyLogoInput.files && companyLogoInput.files[0];
+            companyLogoInput.value = '';
+            if (!file) return;
+            if (file.size > 2 * 1024 * 1024) {
+                setStatus('Logo must be 2 MB or smaller.', 'error');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('logo', file);
+            sendCompanyLogoRequest('/company-logo', formData);
+        });
+
+        companyLogoRemoveBtn.addEventListener('click', function(event) {
+            event.stopPropagation();
+            if (!window.confirm('Remove the company logo?')) return;
+            sendCompanyLogoRequest('/company-logo/delete', null);
+        });
+    }
+
     const assignedNewStaff = applyPendingStaffAssignment();
     render();
+    resetUndoHistory();
     if (assignedNewStaff) {
-        scheduleAutoSave();
+        scheduleAutoSave({ skipHistory: true });
     }
 }
 

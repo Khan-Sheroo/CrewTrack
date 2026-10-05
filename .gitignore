@@ -14,6 +14,9 @@ file_processor/venv/
 instance/
 .webassets-cache
 
+# Uploaded company logos
+uploads/
+
 # Database (local dev data — use seed.py to populate)
 *.db
 *.sqlite
