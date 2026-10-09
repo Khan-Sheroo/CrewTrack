@@ -33,6 +33,10 @@ def migrate_cleaner_active():
             db.session.rollback()
             raise
 
+# def migrate_cleaner_active():
+#     """Migrate cleaner table to add active column."""
+#     with app.app_contect
+
 
 if __name__ == "__main__":
     migrate_cleaner_active()

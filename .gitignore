@@ -22,6 +22,9 @@ uploads/
 *.sqlite
 *.sqlite3
 
+# Staff exports from seed_staff.py (contain ID numbers)
+staff_seed*.json
+
 # Environment / secrets
 .env
 .env.local

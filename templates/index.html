@@ -34,6 +34,7 @@
     .stat-card.wages { border-color: #e67e22; }
     .stat-card.invoices { border-color: #1abc9c; }
     .stat-card.manage-logs { border-color: #34495e; }
+    .stat-card.leave { border-color: #0dcaf0; }
     .stat-card-circle .stat-value {
         font-size: 1.35rem;
         font-weight: 700;
@@ -129,6 +130,16 @@
         min-width: 64px;
         font-weight: 600;
         font-size: 0.75rem;
+    }
+    .shift-roster-table .pay-overtime-note {
+        display: block;
+        font-weight: 400;
+        font-size: 0.62rem;
+        color: #b45309;
+        white-space: nowrap;
+    }
+    [data-bs-theme="dark"] .shift-roster-table .pay-overtime-note {
+        color: #fbbf24;
     }
     .shift-roster-table .day-head {
         font-size: 0.72rem;
@@ -636,6 +647,14 @@
         </a>
         <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Manage Logs</div>
     </div>
+    <div class="col-6 col-md-4 col-xl text-center">
+        <a href="{{ url_for('leave_balances') }}" class="stat-card-link" title="Staff leave balances">
+            <div class="card stat-card stat-card-circle leave mx-auto d-flex align-items-center justify-content-center">
+                <div class="stat-value mb-0" style="color:#0dcaf0"><i class="fas fa-umbrella-beach"></i></div>
+            </div>
+        </a>
+        <div class="stat-label mt-2 text-muted text-uppercase fw-semibold">Leave</div>
+    </div>
 </div>
 
 <div class="row g-4 mb-1">
@@ -743,6 +762,21 @@
                         <input type="text" class="form-control" id="shift-end-time" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="e.g. 6 or 1800">
                         <div class="form-text">Type with the number pad: 8 = 08:00, 1730 = 17:30. Enter moves to the next field and saves.</div>
                     </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="shift-double">
+                        <label class="form-check-label" for="shift-double">Double shift</label>
+                    </div>
+                    <div class="d-none" id="shift-second-fields">
+                        <div class="mb-3">
+                            <label for="shift-start-time-2" class="form-label">Second start time</label>
+                            <input type="text" class="form-control" id="shift-start-time-2" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="e.g. 18 or 1800">
+                        </div>
+                        <div class="mb-3">
+                            <label for="shift-end-time-2" class="form-label">Second end time</label>
+                            <input type="text" class="form-control" id="shift-end-time-2" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="e.g. 22 or 2200">
+                        </div>
+                    </div>
+                    <div class="small fw-semibold mb-3" id="shift-total-hours"></div>
                     <div class="mb-0">
                         <label for="shift-site-select" class="form-label">Site</label>
                         <select class="form-select form-select-sm" id="shift-site-select">
@@ -1058,6 +1092,7 @@
                         <label for="staff_new_category" class="form-label">New Category Name</label>
                         <input type="text" class="form-control" id="staff_new_category" name="new_category" maxlength="50">
                     </div>
+                    {% include 'partials/staff_employment_fields.html' %}
                     <div class="mb-3">
                         <label for="staff_rate_type" class="form-label">Rate Type</label>
                         <select class="form-select" id="staff_rate_type" name="rate_type" required>
@@ -1103,6 +1138,8 @@ const SHIFT_ASSIGN_STAFF_ID = shiftRosterBootstrap.assignStaffId || null;
 const SHIFT_SA_PUBLIC_HOLIDAYS = new Set(shiftRosterBootstrap.publicHolidays || []);
 const SHIFT_SUNDAY_MULTIPLIER = shiftRosterBootstrap.sundayMultiplier || 1.5;
 const SHIFT_PH_MULTIPLIER = shiftRosterBootstrap.publicHolidayMultiplier || 2;
+const SHIFT_OVERTIME_RATE = shiftRosterBootstrap.overtimeRate || 70;
+const SHIFT_OVERTIME_THRESHOLD = shiftRosterBootstrap.overtimeThresholdHours || 8;
 let SHIFT_SITES = shiftRosterBootstrap.sites || [];
 </script>
 {% if wage_comparison.has_data %}
@@ -1187,6 +1224,11 @@ function initWeeklyShiftRoster() {
     const shiftTimeContext = document.getElementById('shift-time-context');
     const shiftStartInput = document.getElementById('shift-start-time');
     const shiftEndInput = document.getElementById('shift-end-time');
+    const shiftDoubleInput = document.getElementById('shift-double');
+    const shiftSecondFields = document.getElementById('shift-second-fields');
+    const shiftStartInput2 = document.getElementById('shift-start-time-2');
+    const shiftEndInput2 = document.getElementById('shift-end-time-2');
+    const shiftTotalHours = document.getElementById('shift-total-hours');
     const shiftTimeSaveBtn = document.getElementById('shift-time-save');
     const shiftTimeClearBtn = document.getElementById('shift-time-clear');
     const shiftSetOffBtn = document.getElementById('shift-set-off');
@@ -1310,13 +1352,29 @@ function initWeeklyShiftRoster() {
         return padded;
     }
 
-    function shiftDay(start, end, siteId) {
-        return {
+    function shiftDay(start, end, siteId, start2, end2) {
+        const slot = {
             status: 'shift',
             start: start || null,
             end: end || null,
             site_id: siteId || null,
         };
+        if (start2 && end2) {
+            slot.start2 = start2;
+            slot.end2 = end2;
+        }
+        return slot;
+    }
+
+    function isDoubleShift(slot) {
+        return !!slot && slot.status === 'shift' && !!slot.start2 && !!slot.end2;
+    }
+
+    function slotShiftHours(slot) {
+        if (!slot || slot.status !== 'shift' || !slot.start || !slot.end) return 0;
+        let hours = calculateShiftHours(slot.start, slot.end);
+        if (isDoubleShift(slot)) hours += calculateShiftHours(slot.start2, slot.end2);
+        return Math.round(hours * 100) / 100;
     }
 
     function offDay(requested) {
@@ -1351,7 +1409,7 @@ function initWeeklyShiftRoster() {
         if (status === 'leave') return leaveDay(day.requested);
         if (status === 'sick_leave') return sickLeaveDay();
         if (status === 'paid_leave') return paidLeaveDay();
-        if (status === 'shift') return shiftDay(day.start || null, day.end || null, day.site_id || null);
+        if (status === 'shift') return shiftDay(day.start || null, day.end || null, day.site_id || null, day.start2, day.end2);
         return emptyDay();
     }
 
@@ -1400,7 +1458,7 @@ function initWeeklyShiftRoster() {
         if (slot.status === 'leave') return leaveDay(slot.requested);
         if (slot.status === 'sick_leave') return sickLeaveDay();
         if (slot.status === 'paid_leave') return paidLeaveDay();
-        return shiftDay(slot.start, slot.end, slot.site_id);
+        return shiftDay(slot.start, slot.end, slot.site_id, slot.start2, slot.end2);
     }
 
     function formatDayCellHtml(day) {
@@ -1427,6 +1485,9 @@ function initWeeklyShiftRoster() {
                     '<span class="shift-time-label">' +
                         escapeHtml(formatTimeLabel(slot.start)) + '–' +
                         escapeHtml(formatTimeLabel(slot.end)) +
+                        (isDoubleShift(slot)
+                            ? '<br>' + escapeHtml(formatTimeLabel(slot.start2)) + '–' + escapeHtml(formatTimeLabel(slot.end2))
+                            : '') +
                     '</span>' +
                     (siteName ? '<span class="shift-site-label">' + escapeHtml(siteName) + '</span>' : '') +
                 '</span>';
@@ -1458,19 +1519,19 @@ function initWeeklyShiftRoster() {
     }
 
     function isTenToSixShift(slot) {
-        return !!slot && slot.status === 'shift' &&
+        return !!slot && slot.status === 'shift' && !isDoubleShift(slot) &&
             formatTimeLabel(slot.start) === '10:00' && formatTimeLabel(slot.end) === '18:00';
     }
 
     function isNoonToEightShift(slot) {
-        return !!slot && slot.status === 'shift' &&
+        return !!slot && slot.status === 'shift' && !isDoubleShift(slot) &&
             formatTimeLabel(slot.start) === '12:00' && formatTimeLabel(slot.end) === '20:00';
     }
 
     function getColouredShiftHours(slot) {
         if (!slot || slot.status !== 'shift' || !slot.start || !slot.end) return 0;
         if (isTenToSixShift(slot) || isNoonToEightShift(slot)) return 0;
-        return calculateShiftHours(slot.start, slot.end);
+        return slotShiftHours(slot);
     }
 
     function isEightHourShift(slot) {
@@ -1487,7 +1548,7 @@ function initWeeklyShiftRoster() {
         row.days.forEach(function(day) {
             const slot = normalizeDay(day);
             if (!slot || slot.status !== 'shift' || !slot.start || !slot.end) return;
-            total += calculateShiftHours(slot.start, slot.end);
+            total += slotShiftHours(slot);
         });
         return Math.round(total * 10) / 10;
     }
@@ -1521,6 +1582,11 @@ function initWeeklyShiftRoster() {
     }
 
     function calculateRowWeekPay(row) {
+        const breakdown = calculateRowWeekPayBreakdown(row);
+        return breakdown ? breakdown.total : null;
+    }
+
+    function calculateRowWeekPayBreakdown(row) {
         const staff = getStaffForRow(row);
         if (!staff || staff.rate_amount == null) return null;
 
@@ -1531,6 +1597,7 @@ function initWeeklyShiftRoster() {
         if (rateType === 'monthly') return null;
 
         let totalPay = 0;
+        let overtimeHours = 0;
         row.days.forEach(function(day, dayIndex) {
             const slot = normalizeDay(day);
             if (!slot) return;
@@ -1545,18 +1612,43 @@ function initWeeklyShiftRoster() {
             }
 
             if (slot.status !== 'shift') return;
-
-            if (rateType === 'daily') {
-                totalPay += rateAmount;
-                return;
-            }
-
-            if (!slot.start || !slot.end) return;
-            const hours = calculateShiftHours(slot.start, slot.end);
-            totalPay += hours * rateAmount * getDayPayMultiplier(dayIndex, rateType);
+            if (rateType === 'hourly' && (!slot.start || !slot.end)) return;
+            const hours = slotShiftHours(slot);
+            totalPay += calculateShiftPay(staff, rateType, rateAmount, hours, dayIndex);
+            overtimeHours += getShiftOvertimeHours(staff, hours);
         });
 
-        return Math.round(totalPay * 100) / 100;
+        return {
+            total: Math.round(totalPay * 100) / 100,
+            overtimeHours: Math.round(overtimeHours * 100) / 100,
+            overtimePay: Math.round(overtimeHours * SHIFT_OVERTIME_RATE * 100) / 100,
+        };
+    }
+
+    function formatRowWeekPayHtml(row) {
+        const breakdown = calculateRowWeekPayBreakdown(row);
+        if (!breakdown) return '—';
+        let html = escapeHtml(formatMoney(breakdown.total));
+        if (breakdown.overtimePay > 0) {
+            html += '<small class="pay-overtime-note">incl. OT ' + escapeHtml(formatMoney(breakdown.overtimePay))
+                + ' (' + breakdown.overtimeHours + 'h)</small>';
+        }
+        return html;
+    }
+
+    function getShiftOvertimeHours(staff, hours) {
+        if (!staff || !staff.overtime_eligible) return 0;
+        return Math.max(0, hours - SHIFT_OVERTIME_THRESHOLD);
+    }
+
+    function calculateShiftPay(staff, rateType, rateAmount, hours, dayIndex) {
+        const overtimeHours = getShiftOvertimeHours(staff, hours);
+        const overtimePay = overtimeHours * SHIFT_OVERTIME_RATE;
+        if (rateType === 'daily') return rateAmount + overtimePay;
+        if (rateType === 'hourly') {
+            return (hours - overtimeHours) * rateAmount * getDayPayMultiplier(dayIndex, rateType) + overtimePay;
+        }
+        return 0;
     }
 
     function formatWeekPay(total) {
@@ -1620,15 +1712,12 @@ function initWeeklyShiftRoster() {
                 }
                 const bucket = buckets[key];
 
-                const hours = (slot.start && slot.end) ? calculateShiftHours(slot.start, slot.end) : 0;
+                const hours = slotShiftHours(slot);
                 bucket.hours += hours;
 
                 if (!staff || !rateAmount || rateType === 'monthly') return;
-                if (rateType === 'daily') {
-                    bucket.pay += rateAmount;
-                    bucket.hasPay = true;
-                } else if (rateType === 'hourly' && hours > 0) {
-                    bucket.pay += hours * rateAmount * getDayPayMultiplier(dayIndex, rateType);
+                if (rateType === 'daily' || (rateType === 'hourly' && hours > 0)) {
+                    bucket.pay += calculateShiftPay(staff, rateType, rateAmount, hours, dayIndex);
                     bucket.hasPay = true;
                 }
             });
@@ -1908,7 +1997,7 @@ function initWeeklyShiftRoster() {
 
         const payTd = document.createElement('td');
         payTd.className = 'pay-col';
-        payTd.textContent = formatWeekPay(calculateRowWeekPay(row));
+        payTd.innerHTML = formatRowWeekPayHtml(row);
         tr.appendChild(payTd);
 
         rosterBody.appendChild(tr);
@@ -2288,7 +2377,8 @@ function initWeeklyShiftRoster() {
         activeShiftEdit = { rowIndex: rowIndex, dayIndex: dayIndex };
 
         shiftTimeContext.textContent = (row.name || 'Staff') + ' · ' + dayMeta.label + ' ' + dayMeta.display;
-        if (slot && slot.status === 'shift') {
+        const isShift = slot && slot.status === 'shift';
+        if (isShift) {
             shiftStartInput.value = slot.start ? formatTimeLabel(slot.start) : '';
             shiftEndInput.value = slot.end ? formatTimeLabel(slot.end) : '';
             populateSiteSelect(slot.site_id);
@@ -2297,6 +2387,11 @@ function initWeeklyShiftRoster() {
             shiftEndInput.value = '';
             populateSiteSelect(null);
         }
+        const double = isShift && isDoubleShift(slot);
+        if (shiftDoubleInput) shiftDoubleInput.checked = double;
+        if (shiftStartInput2) shiftStartInput2.value = double ? formatTimeLabel(slot.start2) : '';
+        if (shiftEndInput2) shiftEndInput2.value = double ? formatTimeLabel(slot.end2) : '';
+        toggleSecondShiftFields();
         if (shiftRequestedInput) shiftRequestedInput.checked = !!(slot && slot.requested);
         shiftTimeModal.show();
         if (slot && slot.status === 'off') {
@@ -2472,6 +2567,7 @@ function initWeeklyShiftRoster() {
         if (slot.start && slot.end) {
             const siteName = getSiteName(slot.site_id);
             return escapeHtml(formatPrintTimeRange(slot.start, slot.end)) +
+                (isDoubleShift(slot) ? '<br>' + escapeHtml(formatPrintTimeRange(slot.start2, slot.end2)) : '') +
                 (siteName ? ' ' + escapeHtml(siteName) : '');
         }
         return '';
@@ -2528,7 +2624,7 @@ function initWeeklyShiftRoster() {
         printableRows.forEach(function(row) {
             const department = getRowDisplayGroup(row) || '';
             if (lastDepartment !== null && department !== lastDepartment) {
-                bodyRows += '<tr class="department-break"><td colspan="' + columnCount + '"></td></tr>';
+                bodyRows += '<tr class="department-break"><td colspan="' + columnCount + '">&nbsp;</td></tr>';
             }
             lastDepartment = department;
 
@@ -2572,7 +2668,7 @@ function initWeeklyShiftRoster() {
             'th.staff, td.staff { width: 11%; text-align: left; }' +
             'td.job-title, td.staff { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
             'tbody td { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }' +
-            'tr.department-break td { background: #fff; height: 8px; padding: 0; }' +
+            'tr.department-break td { background: #fff; }' +
             '</style></head><body>' +
             '<div class="print-sheet">' +
             '<div class="print-header">' +
@@ -3131,6 +3227,39 @@ function initWeeklyShiftRoster() {
         return parsed;
     }
 
+    function isDoubleShiftChecked() {
+        return !!(shiftDoubleInput && shiftDoubleInput.checked);
+    }
+
+    function toggleSecondShiftFields() {
+        if (shiftSecondFields) shiftSecondFields.classList.toggle('d-none', !isDoubleShiftChecked());
+        updateShiftTotalHours();
+    }
+
+    function readTypedRange(startInput, endInput) {
+        const start = parseTypedTime(startInput.value);
+        const end = start ? resolveEndTime(start, endInput.value) : null;
+        return start && end ? { start: start, end: end } : null;
+    }
+
+    function updateShiftTotalHours() {
+        if (!shiftTotalHours) return;
+        const first = readTypedRange(shiftStartInput, shiftEndInput);
+        const second = isDoubleShiftChecked() ? readTypedRange(shiftStartInput2, shiftEndInput2) : null;
+        if (!first) {
+            shiftTotalHours.textContent = '';
+            return;
+        }
+        const firstHours = calculateShiftHours(first.start, first.end);
+        if (!second) {
+            shiftTotalHours.textContent = 'Total: ' + firstHours + ' hrs';
+            return;
+        }
+        const secondHours = calculateShiftHours(second.start, second.end);
+        const total = Math.round((firstHours + secondHours) * 100) / 100;
+        shiftTotalHours.textContent = 'Total: ' + firstHours + ' + ' + secondHours + ' = ' + total + ' hrs';
+    }
+
     function saveShiftTimes() {
         const startRaw = shiftStartInput.value.trim();
         const endRaw = shiftEndInput.value.trim();
@@ -3157,7 +3286,34 @@ function initWeeklyShiftRoster() {
         }
         shiftStartInput.value = start;
         shiftEndInput.value = end;
-        applyShiftEdit(shiftDay(start, end, getSelectedSiteId()));
+
+        let start2 = null;
+        let end2 = null;
+        if (isDoubleShiftChecked()) {
+            const start2Raw = shiftStartInput2.value.trim();
+            const end2Raw = shiftEndInput2.value.trim();
+            if (!start2Raw || !end2Raw) {
+                setStatus('Enter both times for the second shift, or untick Double shift.', 'error');
+                (start2Raw ? shiftEndInput2 : shiftStartInput2).focus();
+                return false;
+            }
+            start2 = parseTypedTime(start2Raw);
+            if (!start2) {
+                setStatus('Second start time not recognised. Try 18, 1730 or 17:30.', 'error');
+                shiftStartInput2.focus();
+                return false;
+            }
+            end2 = resolveEndTime(start2, end2Raw);
+            if (!end2) {
+                setStatus('Second end time not recognised. Try 10, 2200 or 22:00.', 'error');
+                shiftEndInput2.focus();
+                return false;
+            }
+            shiftStartInput2.value = start2;
+            shiftEndInput2.value = end2;
+        }
+
+        applyShiftEdit(shiftDay(start, end, getSelectedSiteId(), start2, end2));
         closeShiftTimeModal();
         return true;
     }
@@ -3199,11 +3355,12 @@ function initWeeklyShiftRoster() {
         });
     }
 
-    [shiftStartInput, shiftEndInput].forEach(function(input) {
+    [shiftStartInput, shiftEndInput, shiftStartInput2, shiftEndInput2].forEach(function(input) {
         if (!input) return;
         input.addEventListener('input', function() {
             const cleaned = input.value.replace(/[^\d:.]/g, '');
             if (cleaned !== input.value) input.value = cleaned;
+            updateShiftTotalHours();
         });
         input.addEventListener('focus', function() {
             input.select();
@@ -3226,6 +3383,13 @@ function initWeeklyShiftRoster() {
         shiftEndInput.addEventListener('keydown', function(event) {
             if (event.key !== 'Enter') return;
             event.preventDefault();
+            if (isDoubleShiftChecked() && shiftStartInput2) {
+                const start = parseTypedTime(shiftStartInput.value);
+                const end = start ? resolveEndTime(start, shiftEndInput.value) : null;
+                if (end) shiftEndInput.value = end;
+                shiftStartInput2.focus();
+                return;
+            }
             saveShiftTimes();
         });
         shiftEndInput.addEventListener('blur', function() {
@@ -3233,6 +3397,42 @@ function initWeeklyShiftRoster() {
             if (!start) return;
             const end = resolveEndTime(start, shiftEndInput.value);
             if (end) shiftEndInput.value = end;
+            updateShiftTotalHours();
+        });
+    }
+
+    if (shiftDoubleInput) {
+        shiftDoubleInput.addEventListener('change', function() {
+            toggleSecondShiftFields();
+            if (isDoubleShiftChecked() && shiftStartInput2) shiftStartInput2.focus();
+        });
+    }
+
+    if (shiftStartInput2) {
+        shiftStartInput2.addEventListener('keydown', function(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            normalizeTimeInput(shiftStartInput2);
+            shiftEndInput2.focus();
+        });
+        shiftStartInput2.addEventListener('blur', function() {
+            normalizeTimeInput(shiftStartInput2);
+            updateShiftTotalHours();
+        });
+    }
+
+    if (shiftEndInput2) {
+        shiftEndInput2.addEventListener('keydown', function(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            saveShiftTimes();
+        });
+        shiftEndInput2.addEventListener('blur', function() {
+            const start2 = parseTypedTime(shiftStartInput2.value);
+            if (!start2) return;
+            const end2 = resolveEndTime(start2, shiftEndInput2.value);
+            if (end2) shiftEndInput2.value = end2;
+            updateShiftTotalHours();
         });
     }
 

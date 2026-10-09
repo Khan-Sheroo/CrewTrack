@@ -1,0 +1,51 @@
+{% extends 'print_sheet_base.html' %}
+
+{% block page_title %}Staff Invoice{% endblock %}
+
+{% block sheet_table %}
+<table class="invoice-table">
+    <thead>
+        <tr>
+            <th class="col-date">DATE</th>
+            <th>START TIME</th>
+            <th>FINISH TIME</th>
+            <th>TOTAL HOURS</th>
+            <th>HOURLY RATE</th>
+            <th class="col-overtime">OVERTIME RATE</th>
+            <th>RATE PER DAY</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in invoice.rows %}
+        <tr>
+            <td class="col-date">{{ row.date.strftime('%a %d %b') }}</td>
+            {% if row.label %}
+            <td colspan="2">{{ row.label }}</td>
+            {% else %}
+            <td>{{ row.start_time.strftime('%H:%M') if row.start_time else '—' }}{% if row.start_time_2 %} / {{ row.start_time_2.strftime('%H:%M') }}{% endif %}</td>
+            <td>{{ row.end_time.strftime('%H:%M') if row.end_time else '—' }}{% if row.end_time_2 %} / {{ row.end_time_2.strftime('%H:%M') }}{% endif %}</td>
+            {% endif %}
+            <td>{{ '%g'|format(row.hours) }}</td>
+            <td>{{ row.hourly_rate|money if row.hourly_rate is not none else '—' }}</td>
+            <td>
+                {% if row.overtime_hours > 0 %}
+                {{ '%g'|format(row.overtime_hours) }}h × {{ invoice.overtime_rate|money }} = {{ row.overtime_pay|money }}
+                {% else %}—{% endif %}
+            </td>
+            <td>{{ row.day_total|money }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">No shifts logged for {{ invoice.period_label }}</td></tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <td colspan="3" style="text-align:right">TOTALS</td>
+            <td>{{ '%g'|format(invoice.hours_total) }}</td>
+            <td></td>
+            <td>{{ invoice.overtime_total|money }}</td>
+            <td>{{ invoice.gross_total|money }}</td>
+        </tr>
+    </tfoot>
+</table>
+{% endblock %}

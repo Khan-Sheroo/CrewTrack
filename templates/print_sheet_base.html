@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block page_title %}{% endblock %} - {{ invoice.cleaner.name }} - {{ invoice.period_label }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        @page { size: landscape; margin: 0 20mm; }
+        * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { background: #f3f4f6; color: #000; font-family: Arial, Helvetica, sans-serif; }
+        .invoice-sheet {
+            background: #fff;
+            width: 297mm;
+            max-width: 100%;
+            margin: 1rem auto;
+            padding: 12px 20mm;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+        }
+        .invoice-header { position: relative; display: flex; align-items: center; justify-content: center; min-height: 40px; margin-bottom: 4px; }
+        .invoice-logo { position: absolute; left: 0; top: 50%; transform: translateY(-50%); max-width: 140px; max-height: 48px; object-fit: contain; }
+        .invoice-title { margin: 0; font-size: 15pt; font-weight: 700; text-align: center; }
+        .invoice-meta { text-align: center; font-size: 9pt; margin-bottom: 8px; }
+        .invoice-meta span + span::before { content: " | "; }
+        .invoice-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; line-height: 1.15; }
+        .invoice-table th, .invoice-table td { border: 1px solid #000; padding: 4px 3px; text-align: center; vertical-align: middle; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .invoice-table th.col-date { width: 13%; text-align: left; }
+        .invoice-table td.col-date { text-align: left; }
+        .invoice-table th.col-overtime { width: 22%; }
+        .invoice-bottom { display: flex; justify-content: space-between; align-items: flex-start; gap: 20mm; margin-top: 12px; font-size: 9pt; }
+        .signature-block { flex: 1; display: flex; gap: 12mm; }
+        .signature-field { flex: 1; }
+        .signature-line { border-bottom: 1px solid #000; height: 28px; margin-bottom: 3px; }
+        .signature-label { font-weight: 700; }
+        .summary-table { width: 38%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; line-height: 1.15; }
+        .summary-table td { border: 1px solid #000; padding: 4px 6px; font-weight: 700; }
+        .summary-table td.money { width: 32%; text-align: right; white-space: nowrap; }
+        .summary-table tr.payable td { font-size: 10pt; border-width: 2px; }
+        .toolbar { width: 297mm; max-width: 100%; margin: 1rem auto 0; display: flex; justify-content: flex-end; gap: 0.5rem; }
+        @media print {
+            html, body { margin: 0; padding: 0; background: #fff; }
+            .invoice-sheet { box-shadow: none; margin: 0; padding: 12px 0; width: auto; }
+            .toolbar { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button type="button" class="btn btn-outline-dark btn-sm" onclick="window.close()">Close</button>
+        <button type="button" class="btn btn-dark btn-sm" onclick="window.print()">Print</button>
+    </div>
+
+    <div class="invoice-sheet">
+        <div class="invoice-header">
+            {% if company_logo_url %}
+            <img src="{{ company_logo_url }}" alt="Company logo" class="invoice-logo">
+            {% endif %}
+            <h1 class="invoice-title">{{ self.page_title() }} {{ invoice.period_label }}</h1>
+        </div>
+        <div class="invoice-meta">
+            <span><strong>Name:</strong> {{ invoice.cleaner.name }}</span>
+            {% if invoice.cleaner.id_number %}<span><strong>ID:</strong> {{ invoice.cleaner.id_number }}</span>{% endif %}
+            <span><strong>Position:</strong> {{ invoice.cleaner.category or '—' }}</span>
+        </div>
+
+        {% block sheet_table %}{% endblock %}
+
+        <div class="invoice-bottom">
+            <div class="signature-block">
+                <div class="signature-field">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Staff signature &amp; date</div>
+                </div>
+                <div class="signature-field">
+                    <div class="signature-line"></div>
+                    <div class="signature-label">Manager signature &amp; date</div>
+                </div>
+            </div>
+            <table class="summary-table">
+                <tr>
+                    <td>Total overtime earnings ({{ '%g'|format(invoice.overtime_hours_total) }}h)</td>
+                    <td class="money">{{ invoice.overtime_total|money }}</td>
+                </tr>
+                <tr>
+                    <td>Gross earnings</td>
+                    <td class="money">{{ invoice.gross_total|money }}</td>
+                </tr>
+                <tr>
+                    <td>Deductions: Tax {{ invoice.tax_rate_percent }}% ({{ invoice.period_label }})</td>
+                    <td class="money">-{{ invoice.tax_amount|money }}</td>
+                </tr>
+                <tr class="payable">
+                    <td>{% block payable_label %}Total payable{% endblock %}</td>
+                    <td class="money">{{ invoice.net_total|money }}</td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}Staff Leave - CrewTrack{% endblock %}
+
+{% block extra_css %}
+<style>
+    .leave-table th,
+    .leave-table td {
+        vertical-align: middle;
+        text-align: center;
+        padding: 0.25rem 0.4rem;
+        font-size: 0.85rem;
+    }
+    .leave-table th.staff-col,
+    .leave-table td.staff-col {
+        text-align: left;
+        min-width: 150px;
+    }
+    .leave-table tr.leave-category-header td {
+        background-color: var(--bs-tertiary-bg);
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--bs-secondary-color);
+        text-align: left;
+        padding: 0.2rem 0.4rem;
+    }
+    .leave-table .balance-col {
+        font-weight: 700;
+    }
+    .leave-table .balance-col.is-negative {
+        color: #dc3545;
+    }
+    .leave-history-table td,
+    .leave-history-table th {
+        vertical-align: middle;
+        font-size: 0.85rem;
+    }
+</style>
+{% endblock %}
+
+{% macro format_days(value) -%}
+    {{ ('%g' % value) if value is not none else '0' }}
+{%- endmacro %}
+
+{% block content %}
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+            <h6 class="card-title mb-0"><i class="fas fa-umbrella-beach me-2"></i>Staff Leave</h6>
+            <small class="text-muted">Paid leave balances for active staff</small>
+        </div>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-arrow-left me-2"></i>Back to Home
+        </a>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('add_leave_adjustment') }}" class="row g-2 align-items-end mb-4">
+            <div class="col-12 col-md-3">
+                <label for="leave-staff" class="form-label small mb-1">Staff member</label>
+                <select class="form-select form-select-sm" id="leave-staff" name="cleaner_id" required>
+                    <option value="">Choose…</option>
+                    {% for staff in active_staff %}
+                    <option value="{{ staff.id }}">{{ staff.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label for="leave-days" class="form-label small mb-1">Days</label>
+                <input type="number" class="form-control form-control-sm" id="leave-days" name="days" step="0.5" value="1" required>
+            </div>
+            <div class="col-6 col-md-2">
+                <label for="leave-date" class="form-label small mb-1">Date</label>
+                <input type="date" class="form-control form-control-sm" id="leave-date" name="date" value="{{ today.isoformat() }}">
+            </div>
+            <div class="col-12 col-md-3">
+                <label for="leave-note" class="form-label small mb-1">Note (optional)</label>
+                <input type="text" class="form-control form-control-sm" id="leave-note" name="note" maxlength="255" placeholder="e.g. Opening balance">
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+                <button type="submit" class="btn btn-sm btn-success">
+                    <i class="fas fa-plus me-1"></i>Add Leave Days
+                </button>
+            </div>
+            <div class="col-12">
+                <div class="form-text">Adjusts the annual leave balance, e.g. an opening balance carried over. Use a negative number (e.g. -1) to remove days. Paid leave logged on the roster is deducted automatically.</div>
+            </div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered leave-table mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="staff-col" rowspan="2">Staff</th>
+                        <th rowspan="2" title="Completed months since their first worked shift">Months</th>
+                        <th colspan="4">Annual Leave</th>
+                        <th colspan="2">Sick Leave ({{ today.year }})</th>
+                    </tr>
+                    <tr>
+                        <th title="{{ format_days(annual_rate) }} days per completed month, max {{ format_days(annual_max) }} per year">Earned</th>
+                        <th title="Opening balance and other days added or removed manually">Adjusted</th>
+                        <th title="Paid leave days logged on weekdays">Taken</th>
+                        <th>Balance</th>
+                        <th title="Sick days logged this calendar year">Taken</th>
+                        <th title="Paid sick days left out of {{ format_days(sick_max) }}">Remaining</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for category, rows in leave_rows_by_category.items() %}
+                    <tr class="leave-category-header"><td colspan="8">{{ category }}</td></tr>
+                    {% for row in rows %}
+                    <tr>
+                        <td class="staff-col">{{ row.name }}</td>
+                        <td>{{ row.months }}</td>
+                        <td>{{ format_days(row.accrued) }}</td>
+                        <td>{{ format_days(row.added) }}</td>
+                        <td>{{ row.taken }}</td>
+                        <td class="balance-col{% if row.balance < 0 %} is-negative{% endif %}">{{ format_days(row.balance) }}</td>
+                        <td>{{ row.sick_taken }}</td>
+                        <td class="balance-col{% if row.sick_remaining < 0 %} is-negative{% endif %}">{{ format_days(row.sick_remaining) }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% else %}
+                    <tr><td colspan="8" class="text-center text-muted">No active staff yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="form-text mt-2">
+            <strong>Annual leave:</strong> {{ format_days(annual_rate) }} days per completed month since the staff member's first worked shift, up to {{ format_days(annual_max) }} days per year. Load leave accrued before that as an opening balance using the form above.
+            Balance = Earned + Adjusted − Taken. Paid leave logged on a Saturday or Sunday is not counted.<br>
+            <strong>Sick leave:</strong> up to {{ format_days(sick_max) }} paid sick days per calendar year. A red Remaining figure means the limit has been exceeded.
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h6 class="card-title mb-0"><i class="fas fa-history me-2"></i>Manual Leave Entries</h6>
+    </div>
+    <div class="card-body">
+        {% if adjustments %}
+        <div class="table-responsive">
+            <table class="table table-sm table-striped leave-history-table mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Staff</th>
+                        <th class="text-center">Days</th>
+                        <th>Note</th>
+                        <th class="text-end"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in adjustments %}
+                    <tr>
+                        <td>{{ entry.date.strftime('%d %b %Y') }}</td>
+                        <td>{{ entry.cleaner.name if entry.cleaner else '—' }}</td>
+                        <td class="text-center fw-semibold {{ 'text-success' if entry.days > 0 else 'text-danger' }}">
+                            {{ '+' if entry.days > 0 else '' }}{{ format_days(entry.days) }}
+                        </td>
+                        <td>{{ entry.note or '' }}</td>
+                        <td class="text-end">
+                            <form method="POST" action="{{ url_for('delete_leave_adjustment', adjustment_id=entry.id) }}" class="d-inline" onsubmit="return confirm('Delete this leave entry?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Delete entry">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No manual leave entries yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, session, send_file, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, Response, jsonify, session, send_file, abort, g, has_app_context
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date, time, timedelta
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -55,6 +55,8 @@ class Cleaner(db.Model):
     rate_amount = db.Column(db.Float, nullable=True)
     flat_monthly = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)  # False = archived from hours (no new shifts)
+    residency = db.Column(db.String(10), nullable=False, default='local')  # local | expat
+    employment_type = db.Column(db.String(10), nullable=False, default='permanent')  # permanent | casual
     time_logs = db.relationship('TimeLog', backref='cleaner', lazy=True)
 
     __table_args__ = (
@@ -68,6 +70,8 @@ class TimeLog(db.Model):
     log_type = db.Column(db.String(20), nullable=False, default='shift')
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
+    start_time_2 = db.Column(db.Time, nullable=True)  # second half of a double shift
+    end_time_2 = db.Column(db.Time, nullable=True)
     hours_worked = db.Column(db.Float, nullable=True)
     entry_kind = db.Column(db.String(20), nullable=False, default='worked')
     notes = db.Column(db.Text)
@@ -124,6 +128,31 @@ class Site(db.Model):
     __table_args__ = (
         db.UniqueConstraint('owner_id', 'name', name='uq_site_owner_name'),
     )
+
+
+class LeaveAdjustment(db.Model):
+    """A manual change to a staff member's paid leave balance (positive adds, negative removes)."""
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    cleaner_id = db.Column(db.Integer, db.ForeignKey('cleaner.id'), nullable=False, index=True)
+    date = db.Column(db.Date, nullable=False)
+    days = db.Column(db.Float, nullable=False)
+    note = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    cleaner = db.relationship('Cleaner', backref=db.backref('leave_adjustments', lazy=True))
+
+
+class CleanerPayTerms(db.Model):
+    """Pay terms a staff member was on from a given date, so edits never reprice past shifts."""
+    id = db.Column(db.Integer, primary_key=True)
+    cleaner_id = db.Column(db.Integer, db.ForeignKey('cleaner.id'), nullable=False, index=True)
+    effective_from = db.Column(db.Date, nullable=False)
+    rate_type = db.Column(db.String(20), nullable=True)
+    rate_amount = db.Column(db.Float, nullable=True)
+    flat_monthly = db.Column(db.Boolean, default=False, nullable=False)
+    residency = db.Column(db.String(10), nullable=False, default='local')
+    employment_type = db.Column(db.String(10), nullable=False, default='permanent')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
 def normalize_email(raw_email: str) -> str | None:
@@ -365,7 +394,7 @@ def get_site_breakdown(
         date_to=date_to,
     )
     worked_logs = [
-        log for log in query.all()
+        PayLog(log) for log in query.all()
         if normalize_entry_kind(getattr(log, 'entry_kind', None)) == 'worked'
     ]
 
@@ -463,6 +492,41 @@ MONTHLY_REPORT_CATEGORY_ORDER = [
     'Headbartenders', 'Bartenders', 'Barbacks', 'Waiters', 'Runners', 'Manager', 'Retail'
 ]
 
+STAFF_CATEGORY_ORDER = [
+    ['waiters', 'waiter'],
+    ['general helper', 'general helpers'],
+    ['gardener', 'gardeners'],
+    ['carpenter', 'carpenters'],
+    ['cashier', 'cashiers'],
+    ['headbartenders', 'bar', 'bartenders', 'bartender', 'barbacks', 'barback'],
+    ['beach attendant', 'beach attendants', 'beach assistant', 'beach assistants'],
+    ['driver', 'drivers'],
+    ['runners', 'runner'],
+    ['manager', 'managers'],
+    ['retail'],
+]
+_STAFF_CATEGORY_RANK = {
+    alias: (group_index, alias_index)
+    for group_index, aliases in enumerate(STAFF_CATEGORY_ORDER)
+    for alias_index, alias in enumerate(aliases)
+}
+
+
+def staff_category_sort_key(category_name: str) -> tuple:
+    """Sort key putting departments in the business's roster order, unknown ones alphabetically after."""
+    name = (category_name or '').strip()
+    if name == 'Uncategorized':
+        return (2, 0, 0, '')
+    rank = _STAFF_CATEGORY_RANK.get(name.lower())
+    if rank is None:
+        return (1, 0, 0, name.lower())
+    return (0, rank[0], rank[1], name.lower())
+
+
+def order_staff_categories(category_names) -> list:
+    """Return category names in the business's roster order."""
+    return sorted(set(category_names), key=staff_category_sort_key)
+
 
 def normalize_category_name(raw_category: str) -> str | None:
     """Normalize a staff category name from form input."""
@@ -512,7 +576,7 @@ def get_all_staff_categories() -> list:
     }
     categories = set(DEFAULT_STAFF_CATEGORIES)
     categories.update(db_categories)
-    return sorted(categories, key=lambda name: (name not in DEFAULT_STAFF_CATEGORIES, name.lower()))
+    return order_staff_categories(categories)
 
 
 def resolve_display_group(staff_category: str) -> str:
@@ -527,13 +591,7 @@ def resolve_display_group(staff_category: str) -> str:
 
 def sort_display_categories(category_names) -> list:
     """Return display categories in a stable order with custom groups at the end."""
-    preferred = list(DISPLAY_CATEGORY_GROUPS.keys())
-    category_set = set(category_names)
-    order = [name for name in preferred if name in category_set]
-    order.extend(sorted(name for name in category_set if name not in preferred and name != "Uncategorized"))
-    if "Uncategorized" in category_set:
-        order.append("Uncategorized")
-    return order
+    return order_staff_categories(category_names)
 
 
 def get_display_category_filter_options() -> list:
@@ -587,6 +645,7 @@ def calculate_hours_worked(start_time: time, end_time: time) -> float:
     return round(duration_hours, 2)
 
 
+PREMIUM_PAY_ENABLED = False
 SUNDAY_HOURLY_MULTIPLIER = 1.5
 PUBLIC_HOLIDAY_HOURLY_MULTIPLIER = 2.0
 PAID_ABSENCE_HOURS = 8.0
@@ -643,6 +702,70 @@ def accumulate_log_in_period_bucket(bucket: dict, log: "TimeLog") -> None:
         return
     bucket['entries'] += 1
     add_tracked_hours_to_bucket(bucket, log)
+    add_overtime_to_bucket(bucket, log)
+
+
+RESIDENCY_OPTIONS = ('local', 'expat')
+EMPLOYMENT_TYPE_OPTIONS = ('permanent', 'casual')
+LOCAL_CASUAL_HOURLY_RATE = 47.19
+OVERTIME_HOURLY_RATE = 70.0
+OVERTIME_THRESHOLD_HOURS = 8.0
+
+
+def normalize_residency(value: str | None) -> str:
+    """Return a supported residency value, defaulting to local."""
+    value = (value or '').strip().lower()
+    return value if value in RESIDENCY_OPTIONS else 'local'
+
+
+def normalize_employment_type(value: str | None) -> str:
+    """Return a supported employment type, defaulting to permanent."""
+    value = (value or '').strip().lower()
+    return value if value in EMPLOYMENT_TYPE_OPTIONS else 'permanent'
+
+
+def is_overtime_eligible(cleaner: "Cleaner | None") -> bool:
+    """Local staff (permanent or casual) earn overtime; expats are salary only."""
+    return cleaner is not None and normalize_residency(getattr(cleaner, 'residency', None)) == 'local'
+
+
+def get_log_shift_hours(log: "TimeLog") -> float:
+    """Return the length of a worked log in hours, from stored hours or start/end times."""
+    if log.hours_worked:
+        return float(log.hours_worked)
+    if log.start_time and log.end_time:
+        return calculate_hours_worked(log.start_time, log.end_time)
+    return 0.0
+
+
+def get_log_overtime_hours(log: "TimeLog") -> float:
+    """Return hours beyond the overtime threshold for an eligible staff member's worked shift."""
+    if normalize_entry_kind(getattr(log, 'entry_kind', None)) != 'worked':
+        return 0.0
+    if not is_overtime_eligible(log.cleaner):
+        return 0.0
+    return round(max(0.0, get_log_shift_hours(log) - OVERTIME_THRESHOLD_HOURS), 2)
+
+
+def add_overtime_to_bucket(bucket: dict, log: "TimeLog") -> None:
+    """Track overtime hours, moving them out of the hourly premium buckets so they are not paid twice."""
+    overtime = get_log_overtime_hours(log)
+    if overtime <= 0:
+        return
+    bucket['overtime_hours'] = bucket.get('overtime_hours', 0.0) + overtime
+    if normalize_log_type(log.log_type) == 'time':
+        _, sunday_hours, public_holiday_hours = split_log_hours(log)
+        if public_holiday_hours > 0:
+            bucket['public_holiday_hours'] -= min(overtime, public_holiday_hours)
+        elif sunday_hours > 0:
+            bucket['sunday_hours'] -= min(overtime, sunday_hours)
+
+
+def format_overtime_suffix(overtime_hours: float) -> str:
+    """Return a rate-label suffix describing overtime, or an empty string."""
+    if overtime_hours <= 0:
+        return ''
+    return f" + OT {overtime_hours:g}h @ {format_money(OVERTIME_HOURLY_RATE)}/hr"
 
 
 def get_tracked_hours_for_report(log: "TimeLog") -> float:
@@ -740,6 +863,8 @@ def is_sunday(work_date: date) -> bool:
 
 def get_hourly_pay_multiplier(work_date: date, cleaner: "Cleaner | None" = None) -> float:
     """Return the hourly pay multiplier for a work date."""
+    if not PREMIUM_PAY_ENABLED:
+        return 1.0
     if cleaner is not None and normalize_rate_type(cleaner.rate_type) != 'hourly':
         return 1.0
     if is_sa_public_holiday(work_date):
@@ -757,6 +882,8 @@ def split_log_hours(log: "TimeLog") -> tuple[float, float, float]:
     if hours <= 0:
         return 0.0, 0.0, 0.0
     cleaner = log.cleaner
+    if not PREMIUM_PAY_ENABLED:
+        return hours, 0.0, 0.0
     if cleaner is not None and normalize_rate_type(cleaner.rate_type) != 'hourly':
         return hours, 0.0, 0.0
     if is_sa_public_holiday(log.date):
@@ -830,6 +957,10 @@ def ensure_time_log_schema() -> None:
         )
     if 'site_id' not in existing_columns:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN site_id INTEGER"))
+    if 'start_time_2' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN start_time_2 TIME"))
+    if 'end_time_2' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN end_time_2 TIME"))
 
     db.session.commit()
 
@@ -858,7 +989,14 @@ def ensure_cleaner_schema() -> None:
         )
     if 'id_number' not in existing_columns:
         db.session.execute(db.text("ALTER TABLE cleaner ADD COLUMN id_number VARCHAR(30)"))
-
+    if 'residency' not in existing_columns:
+        db.session.execute(
+            db.text("ALTER TABLE cleaner ADD COLUMN residency VARCHAR(10) NOT NULL DEFAULT 'local'")
+        )
+    if 'employment_type' not in existing_columns:
+        db.session.execute(
+            db.text("ALTER TABLE cleaner ADD COLUMN employment_type VARCHAR(10) NOT NULL DEFAULT 'permanent'")
+        )
     db.session.execute(
         db.text("UPDATE cleaner SET category = 'Manager' WHERE category = 'Shop'")
     )
@@ -982,12 +1120,107 @@ def is_flat_monthly(cleaner: "Cleaner") -> bool:
     return normalize_rate_type(cleaner.rate_type) == 'monthly' and bool(cleaner.flat_monthly)
 
 
+PAY_TERM_FIELDS = ('rate_type', 'rate_amount', 'flat_monthly', 'residency', 'employment_type')
+PAY_TERMS_ORIGIN_DATE = date(1900, 1, 1)
+
+
+class CleanerTermsView:
+    """A staff member as paid during one pay-terms period; non-pay attributes come from the cleaner."""
+
+    def __init__(self, cleaner: "Cleaner", terms: "CleanerPayTerms", effective_to: date | None):
+        self._cleaner = cleaner
+        for field in PAY_TERM_FIELDS:
+            setattr(self, field, getattr(terms, field))
+        self.effective_from = terms.effective_from
+        self.effective_to = effective_to  # exclusive; None while still current
+        self.terms_key = terms.id
+
+    def __getattr__(self, name):
+        return getattr(self._cleaner, name)
+
+
+class PayLog:
+    """A time log whose .cleaner carries the pay terms in force on the log's date."""
+
+    def __init__(self, log: "TimeLog"):
+        self._log = log
+        self.cleaner = cleaner_as_of(log.cleaner, log.date)
+
+    def __getattr__(self, name):
+        return getattr(self._log, name)
+
+
+def get_pay_terms_history(cleaner_id: int) -> list:
+    """Return a cleaner's pay-terms rows, oldest first (cached for the request)."""
+    cache = g.setdefault('_pay_terms_cache', {}) if has_app_context() else {}
+    if cleaner_id not in cache:
+        cache[cleaner_id] = CleanerPayTerms.query.filter_by(cleaner_id=cleaner_id).order_by(
+            CleanerPayTerms.effective_from.asc(), CleanerPayTerms.id.asc()
+        ).all()
+    return cache[cleaner_id]
+
+
+def cleaner_as_of(cleaner: "Cleaner | None", on_date: date | None):
+    """Return the cleaner with the pay terms that applied on a date (the cleaner itself if never changed)."""
+    if cleaner is None or on_date is None or getattr(cleaner, 'id', None) is None:
+        return cleaner
+    history = get_pay_terms_history(cleaner.id)
+    if not history:
+        return cleaner
+    index = 0
+    for i, row in enumerate(history):
+        if row.effective_from <= on_date:
+            index = i
+        else:
+            break
+    effective_to = history[index + 1].effective_from if index + 1 < len(history) else None
+    return CleanerTermsView(cleaner, history[index], effective_to)
+
+
+def record_pay_terms_change(cleaner: "Cleaner", new_terms: dict, effective_from: date) -> None:
+    """Keep a dated history when pay terms change; call before applying new_terms to the cleaner."""
+    old_terms = {field: getattr(cleaner, field) for field in PAY_TERM_FIELDS}
+    if all(old_terms[field] == new_terms[field] for field in PAY_TERM_FIELDS):
+        return
+    history = CleanerPayTerms.query.filter_by(cleaner_id=cleaner.id).order_by(
+        CleanerPayTerms.effective_from.asc(), CleanerPayTerms.id.asc()
+    ).all()
+    if not history:
+        db.session.add(CleanerPayTerms(cleaner_id=cleaner.id, effective_from=PAY_TERMS_ORIGIN_DATE, **old_terms))
+    latest = history[-1] if history else None
+    if latest is not None and latest.effective_from >= effective_from:
+        previous = history[-2] if len(history) > 1 else None
+        if previous is not None and all(getattr(previous, f) == new_terms[f] for f in PAY_TERM_FIELDS):
+            db.session.delete(latest)
+        else:
+            for field in PAY_TERM_FIELDS:
+                setattr(latest, field, new_terms[field])
+    else:
+        db.session.add(CleanerPayTerms(cleaner_id=cleaner.id, effective_from=effective_from, **new_terms))
+    if has_app_context():
+        g.pop('_pay_terms_cache', None)
+
+
+def terms_fraction_of_month(terms, year: int, month: int) -> float:
+    """Share of a calendar month covered by a pay-terms period (1.0 when terms never changed)."""
+    if not isinstance(terms, CleanerTermsView):
+        return 1.0
+    from calendar import monthrange
+    days = monthrange(year, month)[1]
+    month_start = date(year, month, 1)
+    month_end = month_start + timedelta(days=days)
+    start = max(month_start, terms.effective_from)
+    end = min(month_end, terms.effective_to) if terms.effective_to else month_end
+    return max(0.0, (end - start).days / days)
+
+
 BASE_CURRENCY = 'ZAR'
 CURRENCIES = {
     'ZAR': {'label': 'South African Rand', 'short': 'Rand', 'symbol': 'R'},
     'USD': {'label': 'US Dollar', 'short': 'USD', 'symbol': '$'},
     'GBP': {'label': 'British Pound', 'short': 'GBP', 'symbol': '£'},
     'EUR': {'label': 'Euro', 'short': 'EUR', 'symbol': '€'},
+    'SCR': {'label': 'Seychelles Rupee', 'short': 'SCR', 'symbol': 'SR'},
 }
 
 
@@ -1007,7 +1240,7 @@ def get_currency_config(currency_code: str | None = None) -> dict:
 
 def get_currency_options() -> list[dict]:
     """Return supported currencies for the navbar selector."""
-    order = ['ZAR', 'USD', 'GBP', 'EUR']
+    order = ['ZAR', 'USD', 'GBP', 'EUR', 'SCR']
     return [
         {
             'code': code,
@@ -1071,31 +1304,101 @@ def calculate_period_total(
     full_monthly_amount: bool = False,
     paid_absence_days: int = 0,
     paid_absence_regular_hours: float = 0.0,
+    overtime_hours: float = 0.0,
+    monthly_fraction: float = 1.0,
 ) -> float:
-    """Calculate total pay for a period from the cleaner's pay basis."""
+    """Calculate total pay for a period from the cleaner's pay basis, plus any overtime.
+
+    monthly_fraction pro-rates a monthly salary when pay terms changed part-way through the month.
+    """
+    overtime_pay = round(overtime_hours * OVERTIME_HOURLY_RATE, 2)
     normalized_rate_type = normalize_rate_type(rate_type)
     if normalized_rate_type == 'hourly':
-        regular_hours = round(hours_count - sunday_hours - public_holiday_hours, 2)
+        # Sunday/public holiday buckets already exclude overtime, so it only comes off regular hours here.
+        regular_hours = round(hours_count - sunday_hours - public_holiday_hours - overtime_hours, 2)
         regular_hours += paid_absence_regular_hours
-        return calculate_hourly_pay(
+        return round(calculate_hourly_pay(
             regular_hours,
             sunday_hours,
             public_holiday_hours,
             rate_amount
-        )
+        ) + overtime_pay, 2)
     if normalized_rate_type == 'daily':
-        return round((entry_count + paid_absence_days) * rate_amount, 2)
+        return round((entry_count + paid_absence_days) * rate_amount + overtime_pay, 2)
     absence_pay = paid_absence_days * (rate_amount / float(days_in_month))
     if flat_monthly:
         if entry_count >= 1:
-            return round(rate_amount, 2)
+            return round(rate_amount * monthly_fraction + overtime_pay, 2)
         if paid_absence_days >= 1:
             return round(absence_pay, 2)
         return 0.0
     if full_monthly_amount:
-        base = round(rate_amount, 2) if entry_count >= 1 else 0.0
-        return round(base + absence_pay, 2)
-    return round(entry_count * (rate_amount / float(days_in_month)) + absence_pay, 2)
+        base = round(rate_amount * monthly_fraction, 2) if entry_count >= 1 else 0.0
+        return round(base + absence_pay + overtime_pay, 2)
+    return round(entry_count * (rate_amount / float(days_in_month)) + absence_pay + overtime_pay, 2)
+
+
+def new_period_bucket() -> dict:
+    """Return an empty weekly/monthly accumulation bucket."""
+    return {'entries': 0, 'hours': 0.0, 'regular_hours': 0.0, 'sunday_hours': 0.0, 'public_holiday_hours': 0.0}
+
+
+def add_log_to_pay_segments(period_bucket: dict, pay_log: "PayLog") -> None:
+    """Accumulate a log into the period bucket and into the sub-bucket for its pay terms."""
+    accumulate_log_in_period_bucket(period_bucket, pay_log)
+    segments = period_bucket.setdefault('segments', {})
+    key = getattr(pay_log.cleaner, 'terms_key', None)
+    if key not in segments:
+        segments[key] = {'terms': pay_log.cleaner, 'bucket': new_period_bucket()}
+    accumulate_log_in_period_bucket(segments[key]['bucket'], pay_log)
+
+
+def price_pay_segment(terms, bucket: dict, days_in_month: int, full_monthly_amount: bool, monthly_fraction: float = 1.0) -> dict:
+    """Price one period segment on a single set of pay terms."""
+    rate_type, rate_amount = get_cleaner_rate_config(terms)
+    normalized_rate_type = normalize_rate_type(rate_type)
+    flat_monthly = is_flat_monthly(terms)
+    sunday_hours = round(bucket.get('sunday_hours', 0.0), 2)
+    public_holiday_hours = round(bucket.get('public_holiday_hours', 0.0), 2)
+    overtime_hours = round(bucket.get('overtime_hours', 0.0), 2)
+    total = calculate_period_total(
+        rate_type,
+        rate_amount,
+        bucket['entries'],
+        round(bucket['hours'], 2),
+        days_in_month,
+        flat_monthly=flat_monthly,
+        sunday_hours=sunday_hours,
+        public_holiday_hours=public_holiday_hours,
+        full_monthly_amount=full_monthly_amount,
+        paid_absence_days=bucket.get('paid_absence_days', 0),
+        paid_absence_regular_hours=bucket.get('paid_absence_regular_hours', 0.0),
+        overtime_hours=overtime_hours,
+        monthly_fraction=monthly_fraction,
+    )
+    if normalized_rate_type == 'hourly':
+        label = format_hourly_rate_label(
+            rate_amount,
+            include_sunday_rate=sunday_hours > 0,
+            include_public_holiday_rate=public_holiday_hours > 0,
+        )
+    else:
+        label = format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)
+    return {
+        'rate_type': normalized_rate_type,
+        'flat_monthly': flat_monthly,
+        'total': total,
+        'label': label,
+        'overtime_hours': overtime_hours,
+        'effective_from': getattr(terms, 'effective_from', None),
+    }
+
+
+def sorted_pay_segments(period_bucket: dict) -> list:
+    """Return a period's pay segments, oldest terms first."""
+    segments = list(period_bucket.get('segments', {}).values())
+    segments.sort(key=lambda seg: getattr(seg['terms'], 'effective_from', None) or PAY_TERMS_ORIGIN_DATE)
+    return segments
 
 
 def get_allowed_log_types_for_cleaner(cleaner: "Cleaner") -> frozenset:
@@ -1128,6 +1431,8 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
     time_window = None
     if log.start_time and log.end_time:
         time_window = f"{log.start_time.strftime('%H:%M')} - {log.end_time.strftime('%H:%M')}"
+        if getattr(log, 'start_time_2', None) and getattr(log, 'end_time_2', None):
+            time_window += f" + {log.start_time_2.strftime('%H:%M')} - {log.end_time_2.strftime('%H:%M')}"
 
     if is_paid_absence_log(log):
         kind_label = {
@@ -1169,7 +1474,10 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
         quantity = get_log_hours(log)
         multiplier = get_hourly_pay_multiplier(log.date, cleaner)
         effective_rate = round(rate_amount * multiplier, 2)
-        if is_sa_public_holiday(log.date):
+        if multiplier == 1.0:
+            rate_display = format_rate_label(rate_type, rate_amount)
+            description = f"Time entry{f' ({time_window})' if time_window else ''}"
+        elif is_sa_public_holiday(log.date):
             rate_display = f"{format_money(effective_rate)}/hr (Public holiday 2x)"
             description = f"Public holiday time entry{f' ({time_window})' if time_window else ''}"
         elif is_sunday(log.date):
@@ -1219,6 +1527,42 @@ def build_invoice_line_item(cleaner: "Cleaner", log: "TimeLog") -> dict:
     }
 
 
+def add_overtime_invoice_lines(cleaner: "Cleaner", logs: list, line_items: list) -> list:
+    """Append an overtime line per qualifying shift, trimming hourly lines to the threshold."""
+    items_by_date = {}
+    for item in line_items:
+        items_by_date.setdefault(item['date'], []).append(item)
+
+    result = list(line_items)
+    for log in logs:
+        overtime = get_log_overtime_hours(log)
+        if overtime <= 0:
+            continue
+        rate_type, rate_amount = get_cleaner_rate_config(log.cleaner)
+        is_hourly = normalize_rate_type(rate_type) == 'hourly'
+        if is_hourly and normalize_log_type(log.log_type) == 'time':
+            for item in items_by_date.get(log.date, []):
+                if item.get('overtime_adjusted') or not item['quantity_display'].endswith('hrs'):
+                    continue
+                regular_hours = round(item['quantity'] - overtime, 2)
+                effective_rate = item['amount'] / item['quantity'] if item['quantity'] else rate_amount
+                item['quantity'] = regular_hours
+                item['quantity_display'] = f"{regular_hours:.2f} hrs"
+                item['amount'] = round(regular_hours * effective_rate, 2)
+                item['overtime_adjusted'] = True
+                break
+        result.append({
+            'date': log.date,
+            'description': f"Overtime (over {OVERTIME_THRESHOLD_HOURS:g} hrs)",
+            'quantity': overtime,
+            'quantity_display': f"{overtime:.2f} hrs",
+            'rate_display': f"{format_money(OVERTIME_HOURLY_RATE)}/hr",
+            'amount': round(overtime * OVERTIME_HOURLY_RATE, 2),
+        })
+    result.sort(key=lambda item: item['date'])
+    return result
+
+
 def build_staff_invoice_data(cleaner: "Cleaner", date_from: date, date_to: date) -> dict:
     """Build printable invoice data for one staff member over a date range."""
     logs = timelogs_query().filter(
@@ -1226,22 +1570,23 @@ def build_staff_invoice_data(cleaner: "Cleaner", date_from: date, date_to: date)
         TimeLog.date >= date_from,
         TimeLog.date <= date_to
     ).order_by(TimeLog.date.asc(), TimeLog.created_at.asc()).all()
+    logs = [PayLog(log) for log in logs]
 
-    if is_flat_monthly(cleaner):
-        months_seen = {}
-        for log in logs:
-            month_key = f"{log.date.year}-{log.date.month:02d}"
-            if month_key not in months_seen:
-                months_seen[month_key] = log
-        line_items = [
-            build_invoice_line_item(cleaner, months_seen[month_key])
-            for month_key in sorted(months_seen.keys())
-        ]
-    else:
-        line_items = [build_invoice_line_item(cleaner, log) for log in logs]
+    line_items = []
+    flat_months_seen = set()
+    for log in logs:
+        terms = log.cleaner
+        if is_flat_monthly(terms):
+            month_key = (log.date.year, log.date.month, getattr(terms, 'terms_key', None))
+            if month_key in flat_months_seen:
+                continue
+            flat_months_seen.add(month_key)
+        line_items.append(build_invoice_line_item(terms, log))
+    line_items = add_overtime_invoice_lines(cleaner, logs, line_items)
     total_hours = round(sum(get_tracked_hours_for_report(log) for log in logs), 2)
     total_amount = round(sum(item['amount'] for item in line_items), 2)
-    rate_type, rate_amount = get_cleaner_rate_config(cleaner, date_from)
+    rate_terms = cleaner_as_of(cleaner, date_to)
+    rate_type, rate_amount = get_cleaner_rate_config(rate_terms, date_from)
 
     return {
         'invoice_number': f"INV-{cleaner.id}-{date_from.strftime('%Y%m%d')}-{date_to.strftime('%Y%m%d')}",
@@ -1256,7 +1601,7 @@ def build_staff_invoice_data(cleaner: "Cleaner", date_from: date, date_to: date)
         'rate_label': format_rate_label(
             rate_type,
             rate_amount,
-            flat_monthly=is_flat_monthly(cleaner)
+            flat_monthly=is_flat_monthly(rate_terms)
         ),
         'rate_type': normalize_rate_type(rate_type)
     }
@@ -1614,16 +1959,12 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
         
         if week_key not in weekly_totals[cleaner_name]['weeks']:
             weekly_totals[cleaner_name]['weeks'][week_key] = {
-                'entries': 0,
-                'hours': 0.0,
-                'regular_hours': 0.0,
-                'sunday_hours': 0.0,
-                'public_holiday_hours': 0.0,
+                **new_period_bucket(),
                 'months': [],  # Track all months in this week
                 'log_date': log.date  # Store first log date for rate calculation
             }
 
-        accumulate_log_in_period_bucket(weekly_totals[cleaner_name]['weeks'][week_key], log)
+        add_log_to_pay_segments(weekly_totals[cleaner_name]['weeks'][week_key], PayLog(log))
         # Track month (avoid duplicates)
         if month not in weekly_totals[cleaner_name]['weeks'][week_key]['months']:
             weekly_totals[cleaner_name]['weeks'][week_key]['months'].append(month)
@@ -1638,44 +1979,26 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                 representative_date = log_date
             entry_count = week_data['entries']
             hours_count = round(week_data['hours'], 2)
-            sunday_hours = round(week_data.get('sunday_hours', 0.0), 2)
-            public_holiday_hours = round(week_data.get('public_holiday_hours', 0.0), 2)
             # Use the first month (or most common if week spans months)
             # For simplicity, use the first month encountered
             month = week_data['months'][0] if week_data['months'] else 1
             # Determine days per month: December = 26, others = 24
             days_in_month = 26 if month == 12 else 24
-            cleaner = cleaners_query().filter_by(name=cleaner_name).first()
-            rate_type, rate_amount = get_cleaner_rate_config(cleaner, log_date) if cleaner else ('monthly', get_monthly_rate(cleaner_name, cleaner_category, log_date))
-            flat_monthly = is_flat_monthly(cleaner) if cleaner else False
-            normalized_rate_type = normalize_rate_type(rate_type)
-            if normalized_rate_type == 'monthly':
-                week_total = None
-                week_rate_label = f"{format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)} (see monthly)"
-            else:
-                week_total = calculate_period_total(
-                    rate_type,
-                    rate_amount,
-                    entry_count,
-                    hours_count,
-                    days_in_month,
-                    sunday_hours=sunday_hours,
-                    public_holiday_hours=public_holiday_hours,
-                    paid_absence_days=week_data.get('paid_absence_days', 0),
-                    paid_absence_regular_hours=week_data.get('paid_absence_regular_hours', 0.0),
-                )
-                if normalized_rate_type == 'hourly':
-                    week_rate_label = format_hourly_rate_label(
-                        rate_amount,
-                        include_sunday_rate=sunday_hours > 0,
-                        include_public_holiday_rate=public_holiday_hours > 0
-                    )
-                else:
-                    week_rate_label = format_rate_label(
-                        rate_type,
-                        rate_amount,
-                        flat_monthly=flat_monthly,
-                    )
+            week_total = None
+            week_overtime_hours = 0.0
+            labels = []
+            all_monthly = True
+            for segment in sorted_pay_segments(week_data):
+                priced = price_pay_segment(segment['terms'], segment['bucket'], days_in_month, full_monthly_amount=False)
+                if priced['rate_type'] == 'monthly':
+                    labels.append(f"{priced['label']} (see monthly)")
+                    continue
+                all_monthly = False
+                week_total = round((week_total or 0.0) + priced['total'], 2)
+                week_overtime_hours += priced['overtime_hours']
+                labels.append(priced['label'] + format_overtime_suffix(priced['overtime_hours']))
+            normalized_rate_type = 'monthly' if all_monthly else 'mixed'
+            week_rate_label = ' → '.join(labels)
             cleaner_data['weeks'][week_key] = {
                 'entries': entry_count,
                 'hours': hours_count,
@@ -1685,6 +2008,8 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                 'rate_label': week_rate_label,
                 'total': week_total,
                 'paid_monthly': normalized_rate_type == 'monthly',
+                'overtime_hours': round(week_overtime_hours, 2),
+                'overtime_pay': round(week_overtime_hours * OVERTIME_HOURLY_RATE, 2),
             }
 
         cleaner = cleaners_query().filter_by(name=cleaner_name).first()
@@ -1745,22 +2070,10 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
     for category in categorized_data:
         categorized_data[category] = dict(sorted(categorized_data[category].items()))
     
-    # Return in the specified order, then any custom categories
-    ordered_data = {}
-    for category in category_order:
-        if category in categorized_data and categorized_data[category]:
-            ordered_data[category] = categorized_data[category]
-
-    custom_categories = sorted(
-        category for category in categorized_data
-        if category not in category_order and category != 'Uncategorized' and categorized_data[category]
-    )
-    for category in custom_categories:
-        ordered_data[category] = categorized_data[category]
-    
-    # Add any remaining uncategorized
-    if 'Uncategorized' in categorized_data and categorized_data['Uncategorized']:
-        ordered_data['Uncategorized'] = categorized_data['Uncategorized']
+    ordered_data = {
+        category: categorized_data[category]
+        for category in order_staff_categories(c for c in categorized_data if categorized_data[c])
+    }
     
     category_totals = _calculate_category_totals(ordered_data, 'weeks')
     return ordered_data, category_totals
@@ -1805,15 +2118,9 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
             }
         
         if month_key not in monthly_totals[cleaner_id]['months']:
-            monthly_totals[cleaner_id]['months'][month_key] = {
-                'entries': 0,
-                'hours': 0.0,
-                'regular_hours': 0.0,
-                'sunday_hours': 0.0,
-                'public_holiday_hours': 0.0
-            }
+            monthly_totals[cleaner_id]['months'][month_key] = new_period_bucket()
 
-        accumulate_log_in_period_bucket(monthly_totals[cleaner_id]['months'][month_key], log)
+        add_log_to_pay_segments(monthly_totals[cleaner_id]['months'][month_key], PayLog(log))
     
     # Calculate totals for each month with month-specific daily rates
     for cleaner_id, cleaner_data in monthly_totals.items():
@@ -1828,19 +2135,26 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
             year_int = int(year)
             month_int = int(month)
             days_in_month = 26 if month_int == 12 else 24
-            month_date = date(year_int, month_int, 1)
-            cleaner = get_cleaner_for_owner(cleaner_id)
-            rate_type, rate_amount = get_cleaner_rate_config(cleaner, month_date) if cleaner else ('monthly', get_monthly_rate(cleaner_name, cleaner_category, month_date))
-            flat_monthly = is_flat_monthly(cleaner) if cleaner else False
-            normalized_rate_type = normalize_rate_type(rate_type)
-            if normalized_rate_type == 'hourly':
-                rate_label = format_hourly_rate_label(
-                    rate_amount,
-                    include_sunday_rate=sunday_hours > 0,
-                    include_public_holiday_rate=public_holiday_hours > 0
+            month_total = 0.0
+            overtime_hours = 0.0
+            labels = []
+            for segment in sorted_pay_segments(month_entry):
+                priced = price_pay_segment(
+                    segment['terms'],
+                    segment['bucket'],
+                    days_in_month,
+                    full_monthly_amount=True,
+                    monthly_fraction=terms_fraction_of_month(segment['terms'], year_int, month_int),
                 )
-            else:
-                rate_label = format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)
+                month_total += priced['total']
+                overtime_hours += priced['overtime_hours']
+                label = priced['label'] + format_overtime_suffix(priced['overtime_hours'])
+                if priced['effective_from'] and priced['effective_from'] > PAY_TERMS_ORIGIN_DATE \
+                        and (priced['effective_from'].year, priced['effective_from'].month) == (year_int, month_int):
+                    label += f" from {priced['effective_from'].strftime('%d %b')}"
+                labels.append(label)
+            overtime_hours = round(overtime_hours, 2)
+            rate_label = ' → '.join(labels)
             cleaner_data['months'][month_key] = {
                 'entries': entry_count,
                 'hours': hours_count,
@@ -1850,19 +2164,9 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
                 'sunday_hours': sunday_hours,
                 'public_holiday_hours': public_holiday_hours,
                 'rate_label': rate_label,
-                'total': calculate_period_total(
-                    rate_type,
-                    rate_amount,
-                    entry_count,
-                    hours_count,
-                    days_in_month,
-                    flat_monthly=flat_monthly,
-                    sunday_hours=sunday_hours,
-                    public_holiday_hours=public_holiday_hours,
-                    full_monthly_amount=True,
-                    paid_absence_days=month_entry.get('paid_absence_days', 0),
-                    paid_absence_regular_hours=month_entry.get('paid_absence_regular_hours', 0.0),
-                )
+                'total': round(month_total, 2),
+                'overtime_hours': overtime_hours,
+                'overtime_pay': round(overtime_hours * OVERTIME_HOURLY_RATE, 2),
             }
 
         cleaner = get_cleaner_for_owner(cleaner_id)
@@ -1936,22 +2240,10 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
     for category in categorized_data:
         categorized_data[category] = dict(sorted(categorized_data[category].items(), key=lambda x: get_sort_key(x[0])))
     
-    # Return in the specified order, then any custom categories
-    ordered_data = {}
-    for category in category_order:
-        if category in categorized_data and categorized_data[category]:
-            ordered_data[category] = categorized_data[category]
-
-    custom_categories = sorted(
-        category for category in categorized_data
-        if category not in category_order and category != 'Uncategorized' and categorized_data[category]
-    )
-    for category in custom_categories:
-        ordered_data[category] = categorized_data[category]
-    
-    # Add any remaining uncategorized
-    if 'Uncategorized' in categorized_data and categorized_data['Uncategorized']:
-        ordered_data['Uncategorized'] = categorized_data['Uncategorized']
+    ordered_data = {
+        category: categorized_data[category]
+        for category in order_staff_categories(c for c in categorized_data if categorized_data[c])
+    }
 
     ordered_data = _filter_ordered_staff_by_pay_basis(ordered_data, pay_basis)
     category_totals = _calculate_category_totals(ordered_data, 'months')
@@ -2088,6 +2380,8 @@ def build_staff_payroll_row(cleaner: "Cleaner", today: date | None = None) -> di
         'rate_amount': rate_amount,
         'rate_label': format_rate_label(rate_type, rate_amount, flat_monthly=is_flat_monthly(cleaner)),
         'flat_monthly': is_flat_monthly(cleaner),
+        'residency': normalize_residency(cleaner.residency),
+        'employment_type': normalize_employment_type(cleaner.employment_type),
         'active': cleaner.active,
         'log_count': log_count,
         'can_delete': log_count == 0,
@@ -2237,12 +2531,18 @@ def normalize_shift_day(raw_day, allowed_site_ids: set | None = None) -> dict | 
     if status != 'shift':
         return None
 
-    return {
+    slot = {
         'status': 'shift',
         'start': normalize_shift_time_value(raw_day.get('start')),
         'end': normalize_shift_time_value(raw_day.get('end')),
         'site_id': _normalize_site_id_value(raw_day.get('site_id'), allowed_site_ids),
     }
+    start2 = normalize_shift_time_value(raw_day.get('start2'))
+    end2 = normalize_shift_time_value(raw_day.get('end2'))
+    if start2 and end2:
+        slot['start2'] = start2
+        slot['end2'] = end2
+    return slot
 
 
 def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[dict]:
@@ -2362,40 +2662,35 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
     start_time = parse_time_value(day_slot.get('start')) if day_slot.get('start') else None
     end_time = parse_time_value(day_slot.get('end')) if day_slot.get('end') else None
     has_times = bool(start_time and end_time)
+    start_time_2 = parse_time_value(day_slot.get('start2')) if has_times and day_slot.get('start2') else None
+    end_time_2 = parse_time_value(day_slot.get('end2')) if has_times and day_slot.get('end2') else None
+    if not (start_time_2 and end_time_2):
+        start_time_2 = end_time_2 = None
     rate_type = normalize_rate_type(cleaner.rate_type)
     site_id = _normalize_site_id_value(day_slot.get('site_id'))
+    hours_worked = None
+    if has_times:
+        hours_worked = calculate_hours_worked(start_time, end_time)
+        if start_time_2:
+            hours_worked = round(hours_worked + calculate_hours_worked(start_time_2, end_time_2), 2)
+    times = {
+        'start_time': start_time,
+        'end_time': end_time,
+        'start_time_2': start_time_2,
+        'end_time_2': end_time_2,
+        'hours_worked': hours_worked,
+        'site_id': site_id,
+    }
 
     if rate_type == 'hourly':
         if not has_times:
             return None
-        return {
-            'log_type': 'time',
-            'entry_kind': 'worked',
-            'start_time': start_time,
-            'end_time': end_time,
-            'hours_worked': calculate_hours_worked(start_time, end_time),
-            'site_id': site_id,
-        }
+        return {'log_type': 'time', 'entry_kind': 'worked', **times}
 
     if rate_type == 'monthly' and is_flat_monthly(cleaner) and has_times:
-        return {
-            'log_type': 'time',
-            'entry_kind': 'worked',
-            'start_time': start_time,
-            'end_time': end_time,
-            'hours_worked': calculate_hours_worked(start_time, end_time),
-            'site_id': site_id,
-        }
+        return {'log_type': 'time', 'entry_kind': 'worked', **times}
 
-    hours_worked = calculate_hours_worked(start_time, end_time) if has_times else None
-    return {
-        'log_type': 'shift',
-        'entry_kind': 'worked',
-        'start_time': start_time,
-        'end_time': end_time,
-        'hours_worked': hours_worked,
-        'site_id': site_id,
-    }
+    return {'log_type': 'shift', 'entry_kind': 'worked', **times}
 
 
 def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
@@ -2404,6 +2699,8 @@ def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
     log.entry_kind = payload.get('entry_kind', 'worked')
     log.start_time = payload.get('start_time')
     log.end_time = payload.get('end_time')
+    log.start_time_2 = payload.get('start_time_2')
+    log.end_time_2 = payload.get('end_time_2')
     log.hours_worked = payload.get('hours_worked')
     log.site_id = payload.get('site_id')
 
@@ -2464,6 +2761,8 @@ def sync_roster_week_to_time_logs(owner_id: int, week_start: date, rows: list[di
             entry_kind=payload.get('entry_kind', 'worked'),
             start_time=payload.get('start_time'),
             end_time=payload.get('end_time'),
+            start_time_2=payload.get('start_time_2'),
+            end_time_2=payload.get('end_time_2'),
             hours_worked=payload.get('hours_worked'),
             site_id=payload.get('site_id'),
         ))
@@ -2511,9 +2810,11 @@ def build_shift_roster_bootstrap_data(
         'initialWeekDays': shift_week_days,
         'defaultRowCount': 10,
         'assignStaffId': assign_staff_id,
-        'publicHolidays': shift_sa_public_holidays,
-        'sundayMultiplier': SUNDAY_HOURLY_MULTIPLIER,
-        'publicHolidayMultiplier': PUBLIC_HOLIDAY_HOURLY_MULTIPLIER,
+        'publicHolidays': shift_sa_public_holidays if PREMIUM_PAY_ENABLED else [],
+        'sundayMultiplier': SUNDAY_HOURLY_MULTIPLIER if PREMIUM_PAY_ENABLED else 1.0,
+        'publicHolidayMultiplier': PUBLIC_HOLIDAY_HOURLY_MULTIPLIER if PREMIUM_PAY_ENABLED else 1.0,
+        'overtimeRate': OVERTIME_HOURLY_RATE,
+        'overtimeThresholdHours': OVERTIME_THRESHOLD_HOURS,
         'sites': shift_sites or [],
     }
 
@@ -2803,6 +3104,9 @@ def inject_current_user():
     currency = get_currency_config()
     return {
         'current_user': get_current_user(),
+        'local_casual_hourly_rate': LOCAL_CASUAL_HOURLY_RATE,
+        'overtime_hourly_rate': OVERTIME_HOURLY_RATE,
+        'overtime_threshold_hours': OVERTIME_THRESHOLD_HOURS,
         'currency_code': currency['code'],
         'currency_symbol': currency['symbol'],
         'currency_label': currency['label'],
@@ -3005,6 +3309,7 @@ def index():
             'rate_type': rate_type,
             'rate_amount': rate_amount,
             'flat_monthly': is_flat_monthly(cleaner),
+            'overtime_eligible': is_overtime_eligible(cleaner),
         })
     shift_category_order = sort_display_categories({staff['group'] for staff in shift_active_staff})
     owner_id = get_current_owner_id()
@@ -3684,6 +3989,14 @@ def monthly_totals():
             filter_year, filter_month, filter_date_from, filter_date_to, filter_pay_basis
         )
     )
+    all_staff = cleaners_query().order_by(Cleaner.name).all()
+    casual_staff = [
+        cleaner for cleaner in all_staff
+        if normalize_employment_type(cleaner.employment_type) == 'casual'
+    ]
+    overtime_staff = [cleaner for cleaner in all_staff if is_overtime_eligible(cleaner)]
+    today = date.today()
+    casual_invoice_month = _month_key(filter_year or today.year, filter_month or today.month)
     
     return render_template('monthly.html', 
                          monthly_data=monthly_data,
@@ -3698,7 +4011,139 @@ def monthly_totals():
                          filter_query_string=filter_query_string,
                          available_years=years,
                          available_months=months,
-                         site_breakdown=site_breakdown)
+                         site_breakdown=site_breakdown,
+                         casual_staff=casual_staff,
+                         overtime_staff=overtime_staff,
+                         casual_invoice_month=casual_invoice_month)
+
+
+CASUAL_INVOICE_TAX_RATE = 0.15
+
+
+def build_casual_invoice_data(cleaner: "Cleaner", year: int, month: int) -> dict:
+    """Build a printable monthly time sheet with overtime, 15% tax and net pay for one staff member."""
+    from calendar import monthrange
+    month_start = date(year, month, 1)
+    month_end = date(year, month, monthrange(year, month)[1])
+    logs = timelogs_query().filter(
+        TimeLog.cleaner_id == cleaner.id,
+        TimeLog.date >= month_start,
+        TimeLog.date <= month_end,
+    ).order_by(TimeLog.date.asc(), TimeLog.start_time.asc()).all()
+
+    rows = []
+    for log in logs:
+        pay_log = PayLog(log)
+        terms = pay_log.cleaner
+        entry_kind = normalize_entry_kind(getattr(log, 'entry_kind', None))
+        if entry_kind != 'worked' and not is_paid_absence_log(log):
+            continue
+        rate_type, rate_amount = get_cleaner_rate_config(terms, log.date)
+        normalized_rate_type = normalize_rate_type(rate_type)
+        if is_paid_absence_log(log):
+            hours = PAID_ABSENCE_HOURS
+            overtime_hours = 0.0
+            label = {'leave': 'PH', 'sick_leave': 'Sick leave'}.get(entry_kind, 'Paid leave')
+        else:
+            hours = get_log_shift_hours(log)
+            overtime_hours = get_log_overtime_hours(pay_log)
+            label = None
+        regular_hours = round(hours - overtime_hours, 2)
+        if normalized_rate_type == 'hourly':
+            regular_pay = regular_hours * rate_amount
+            hourly_rate = rate_amount
+        elif normalized_rate_type == 'daily':
+            regular_pay = rate_amount
+            hourly_rate = None
+        else:
+            regular_pay = rate_amount / float(get_rate_days_in_month(log.date))
+            hourly_rate = None
+        overtime_pay = overtime_hours * OVERTIME_HOURLY_RATE
+        rows.append({
+            'date': log.date,
+            'start_time': log.start_time,
+            'end_time': log.end_time,
+            'start_time_2': getattr(log, 'start_time_2', None),
+            'end_time_2': getattr(log, 'end_time_2', None),
+            'label': label,
+            'hours': round(hours, 2),
+            'overtime_hours': round(overtime_hours, 2),
+            'hourly_rate': hourly_rate,
+            'overtime_pay': round(overtime_pay, 2),
+            'day_total': round(regular_pay + overtime_pay, 2),
+        })
+
+    gross_total = round(sum(row['day_total'] for row in rows), 2)
+    overtime_total = round(sum(row['overtime_pay'] for row in rows), 2)
+    tax_amount = round(gross_total * CASUAL_INVOICE_TAX_RATE, 2)
+    return {
+        'cleaner': cleaner,
+        'period_label': month_start.strftime('%B %Y'),
+        'rows': rows,
+        'hours_total': round(sum(row['hours'] for row in rows), 2),
+        'overtime_hours_total': round(sum(row['overtime_hours'] for row in rows), 2),
+        'overtime_total': overtime_total,
+        'gross_total': gross_total,
+        'tax_rate_percent': int(CASUAL_INVOICE_TAX_RATE * 100),
+        'tax_amount': tax_amount,
+        'net_total': round(gross_total - tax_amount, 2),
+        'overtime_rate': OVERTIME_HOURLY_RATE,
+    }
+
+
+def build_overtime_sheet_data(cleaner: "Cleaner", year: int, month: int) -> dict:
+    """Build a printable monthly overtime sheet: overtime shifts only, taxed on overtime earnings."""
+    data = build_casual_invoice_data(cleaner, year, month)
+    rows = [row for row in data['rows'] if row['overtime_hours'] > 0]
+    overtime_total = round(sum(row['overtime_pay'] for row in rows), 2)
+    tax_amount = round(overtime_total * CASUAL_INVOICE_TAX_RATE, 2)
+    return {
+        **data,
+        'rows': rows,
+        'overtime_hours_total': round(sum(row['overtime_hours'] for row in rows), 2),
+        'overtime_total': overtime_total,
+        'gross_total': overtime_total,
+        'tax_amount': tax_amount,
+        'net_total': round(overtime_total - tax_amount, 2),
+    }
+
+
+def _resolve_print_sheet_request():
+    """Return (cleaner, year, month) from query args, defaulting to the current month."""
+    cleaner = get_cleaner_for_owner(request.args.get('cleaner_id', type=int))
+    year, month = _parse_month_key(request.args.get('month'))
+    if year is None or month is None or not 1 <= month <= 12 or not 1900 <= year <= 9999:
+        today = date.today()
+        year, month = today.year, today.month
+    return cleaner, year, month
+
+
+@app.route('/monthly/overtime-sheet')
+def overtime_sheet():
+    """Printable monthly overtime sheet for a local staff member."""
+    cleaner, year, month = _resolve_print_sheet_request()
+    if not cleaner:
+        flash('Please choose a staff member for the overtime sheet', 'error')
+        return redirect(url_for('monthly_totals'))
+    return render_template(
+        'overtime_sheet.html',
+        invoice=build_overtime_sheet_data(cleaner, year, month),
+        company_logo_url=get_company_logo_url(get_current_owner_id()),
+    )
+
+
+@app.route('/monthly/casual-invoice')
+def casual_invoice():
+    """Printable monthly time sheet and payslip for a casual staff member."""
+    cleaner, year, month = _resolve_print_sheet_request()
+    if not cleaner:
+        flash('Please choose a staff member for the invoice', 'error')
+        return redirect(url_for('monthly_totals'))
+    return render_template(
+        'casual_invoice.html',
+        invoice=build_casual_invoice_data(cleaner, year, month),
+        company_logo_url=get_company_logo_url(get_current_owner_id()),
+    )
 
 
 @app.route('/invoices')
@@ -4052,6 +4497,179 @@ def staff_payroll():
     )
 
 
+ANNUAL_LEAVE_DAYS_PER_MONTH = 1.75
+ANNUAL_LEAVE_MAX_DAYS_PER_YEAR = 21.0
+SICK_LEAVE_MAX_DAYS_PER_YEAR = 21.0
+
+
+def count_completed_months(start: date, today: date) -> int:
+    """Return whole months of service completed between start and today."""
+    if not start or start > today:
+        return 0
+    months = (today.year - start.year) * 12 + (today.month - start.month)
+    if today.day < start.day:
+        months -= 1
+    return max(months, 0)
+
+
+def calculate_accrued_leave_days(completed_months: int) -> float:
+    """Return annual leave earned: 1.75 days per completed month, at most 21 days per year of service."""
+    full_years, remaining_months = divmod(completed_months, 12)
+    per_year = min(12 * ANNUAL_LEAVE_DAYS_PER_MONTH, ANNUAL_LEAVE_MAX_DAYS_PER_YEAR)
+    current_year = min(remaining_months * ANNUAL_LEAVE_DAYS_PER_MONTH, ANNUAL_LEAVE_MAX_DAYS_PER_YEAR)
+    return round(full_years * per_year + current_year, 2)
+
+
+def _count_logged_days(owner_id: int, entry_kind: str, since: date | None = None,
+                       weekdays_only: bool = False) -> dict:
+    """Return {cleaner_id: number of distinct dates} for logs of one entry kind."""
+    query = (
+        db.session.query(TimeLog.cleaner_id, TimeLog.date)
+        .join(Cleaner, Cleaner.id == TimeLog.cleaner_id)
+        .filter(Cleaner.owner_id == owner_id)
+        .filter(TimeLog.entry_kind == entry_kind)
+    )
+    if since:
+        query = query.filter(TimeLog.date >= since)
+    dates_by_cleaner = {}
+    for cleaner_id, log_date in query.all():
+        if weekdays_only and log_date.weekday() >= 5:
+            continue
+        dates_by_cleaner.setdefault(cleaner_id, set()).add(log_date)
+    return {cleaner_id: len(dates) for cleaner_id, dates in dates_by_cleaner.items()}
+
+
+def build_leave_rows(owner_id: int, today: date | None = None) -> dict:
+    """Return annual and sick leave rows for active staff, grouped by category."""
+    today = today or date.today()
+    # Service is counted from the first worked shift; earlier leave is loaded as a manual opening balance.
+    first_worked = dict(
+        db.session.query(TimeLog.cleaner_id, db.func.min(TimeLog.date))
+        .join(Cleaner, Cleaner.id == TimeLog.cleaner_id)
+        .filter(Cleaner.owner_id == owner_id)
+        .filter(db.or_(TimeLog.entry_kind == 'worked', TimeLog.entry_kind.is_(None)))
+        .group_by(TimeLog.cleaner_id)
+        .all()
+    )
+    # Annual leave excludes weekends; public holidays are logged as PH, never as paid leave.
+    annual_taken = _count_logged_days(owner_id, 'paid_leave', weekdays_only=True)
+    sick_taken = _count_logged_days(owner_id, 'sick_leave', since=date(today.year, 1, 1))
+    added_days = dict(
+        db.session.query(LeaveAdjustment.cleaner_id, db.func.sum(LeaveAdjustment.days))
+        .filter(LeaveAdjustment.owner_id == owner_id)
+        .group_by(LeaveAdjustment.cleaner_id)
+        .all()
+    )
+
+    rows_by_category = {}
+    for category, cleaners in get_cleaners_by_category(active_only=True).items():
+        rows = []
+        for cleaner in cleaners:
+            service_start = first_worked.get(cleaner.id)
+            if isinstance(service_start, str):
+                service_start = datetime.strptime(service_start, '%Y-%m-%d').date()
+            months = count_completed_months(service_start, today) if service_start else 0
+            accrued = calculate_accrued_leave_days(months)
+            added = float(added_days.get(cleaner.id) or 0.0)
+            taken = int(annual_taken.get(cleaner.id, 0))
+            sick_used = int(sick_taken.get(cleaner.id, 0))
+            rows.append({
+                'id': cleaner.id,
+                'name': cleaner.name,
+                'months': months,
+                'accrued': accrued,
+                'added': added,
+                'taken': taken,
+                'balance': round(accrued + added - taken, 2),
+                'sick_taken': sick_used,
+                'sick_remaining': SICK_LEAVE_MAX_DAYS_PER_YEAR - sick_used,
+            })
+        if rows:
+            rows_by_category[category] = rows
+    return rows_by_category
+
+
+@app.route('/leave')
+def leave_balances():
+    """Show paid leave balances and manual leave adjustments for active staff."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return redirect(url_for('login'))
+
+    adjustments = (
+        LeaveAdjustment.query
+        .filter_by(owner_id=owner_id)
+        .order_by(LeaveAdjustment.date.desc(), LeaveAdjustment.id.desc())
+        .all()
+    )
+    today = date.today()
+    return render_template(
+        'leave.html',
+        leave_rows_by_category=build_leave_rows(owner_id, today),
+        adjustments=adjustments,
+        active_staff=cleaners_query().filter_by(active=True).order_by(Cleaner.name).all(),
+        today=today,
+        annual_rate=ANNUAL_LEAVE_DAYS_PER_MONTH,
+        annual_max=ANNUAL_LEAVE_MAX_DAYS_PER_YEAR,
+        sick_max=SICK_LEAVE_MAX_DAYS_PER_YEAR,
+    )
+
+
+@app.route('/leave/add', methods=['POST'])
+def add_leave_adjustment():
+    """Manually add (or remove, with a negative number) paid leave days for a staff member."""
+    owner_id = get_current_owner_id()
+    if owner_id is None:
+        return redirect(url_for('login'))
+
+    try:
+        cleaner_id = int(request.form.get('cleaner_id') or 0)
+    except ValueError:
+        cleaner_id = 0
+    cleaner = cleaners_query().filter_by(id=cleaner_id, owner_id=owner_id).first()
+    if not cleaner:
+        flash('Choose a staff member.', 'error')
+        return redirect(url_for('leave_balances'))
+
+    try:
+        days = round(float(request.form.get('days') or ''), 2)
+    except ValueError:
+        days = 0.0
+    if days == 0:
+        flash('Enter the number of leave days (use a negative number to remove days).', 'error')
+        return redirect(url_for('leave_balances'))
+
+    try:
+        entry_date = datetime.strptime(request.form.get('date') or '', '%Y-%m-%d').date()
+    except ValueError:
+        entry_date = date.today()
+
+    note = (request.form.get('note') or '').strip()[:255] or None
+    db.session.add(LeaveAdjustment(
+        owner_id=owner_id,
+        cleaner_id=cleaner.id,
+        date=entry_date,
+        days=days,
+        note=note,
+    ))
+    db.session.commit()
+    action = 'Added' if days > 0 else 'Removed'
+    flash(f'{action} {abs(days):g} leave day{"s" if abs(days) != 1 else ""} for {cleaner.name}.', 'success')
+    return redirect(url_for('leave_balances'))
+
+
+@app.route('/leave/<int:adjustment_id>/delete', methods=['POST'])
+def delete_leave_adjustment(adjustment_id: int):
+    """Delete a manual leave adjustment."""
+    owner_id = get_current_owner_id()
+    adjustment = LeaveAdjustment.query.filter_by(id=adjustment_id, owner_id=owner_id).first()
+    if adjustment:
+        db.session.delete(adjustment)
+        db.session.commit()
+        flash('Leave entry deleted.', 'success')
+    return redirect(url_for('leave_balances'))
+
+
 @app.route('/update-staff', methods=['POST'])
 def update_staff():
     """Update an existing staff member's details and rate."""
@@ -4111,12 +4729,20 @@ def update_staff():
             flash(f'ID number "{id_number}" is already assigned to "{duplicate_id.name}".', 'error')
             return redirect_after_staff_form(return_to)
 
+        new_terms = {
+            'rate_type': rate_type,
+            'rate_amount': rate_amount,
+            'flat_monthly': flat_monthly,
+            'residency': normalize_residency(request.form.get('residency')),
+            'employment_type': normalize_employment_type(request.form.get('employment_type')),
+        }
+        record_pay_terms_change(cleaner, new_terms, date.today())
+
         cleaner.name = name[:100]
         cleaner.id_number = id_number
         cleaner.category = category
-        cleaner.rate_type = rate_type
-        cleaner.rate_amount = rate_amount
-        cleaner.flat_monthly = flat_monthly
+        for field, value in new_terms.items():
+            setattr(cleaner, field, value)
         db.session.commit()
 
         flash(
@@ -4127,6 +4753,7 @@ def update_staff():
         flash('Invalid data provided', 'error')
     except Exception:
         db.session.rollback()
+        logger.exception('Updating staff member %s failed', cleaner_id)
         flash('Error updating staff member', 'error')
 
     return redirect_after_staff_form(return_to)
@@ -4191,6 +4818,8 @@ def delete_staff():
             return redirect_after_staff_form(return_to)
 
         name = cleaner.name
+        LeaveAdjustment.query.filter_by(cleaner_id=cleaner.id).delete(synchronize_session=False)
+        CleanerPayTerms.query.filter_by(cleaner_id=cleaner.id).delete(synchronize_session=False)
         db.session.delete(cleaner)
         db.session.commit()
         flash(f'Permanently removed "{name}".', 'success')
@@ -4224,6 +4853,7 @@ def archive_cleaner():
         flash('Invalid request', 'error')
     except Exception:
         db.session.rollback()
+        logger.exception('Archiving staff member %s failed', cleaner_id)
         flash('Error archiving staff', 'error')
     return redirect_after_staff_form(return_to)
 
@@ -4249,6 +4879,7 @@ def restore_cleaner():
         flash('Invalid request', 'error')
     except Exception:
         db.session.rollback()
+        logger.exception('Restoring staff member %s failed', cleaner_id)
         flash('Error restoring staff', 'error')
     return redirect_after_staff_form(return_to)
 
@@ -4323,7 +4954,9 @@ def add_staff():
             category=category,
             rate_type=rate_type,
             rate_amount=rate_amount,
-            flat_monthly=flat_monthly
+            flat_monthly=flat_monthly,
+            residency=normalize_residency(request.form.get('residency')),
+            employment_type=normalize_employment_type(request.form.get('employment_type')),
         )
         db.session.add(new_cleaner)
         db.session.commit()
@@ -4343,9 +4976,10 @@ def add_staff():
         
     except (ValueError, TypeError):
         flash('Invalid rate amount provided', 'error')
-    except Exception as e:
-        flash('Error adding staff member', 'error')
+    except Exception:
         db.session.rollback()
+        logger.exception('Adding staff member %r failed', name)
+        flash('Error adding staff member', 'error')
     
     return redirect_after_staff_form(return_to, roster_assign_week)
 
@@ -4368,6 +5002,11 @@ def clear_db():
         staff_count = len(tenant_cleaner_ids)
         if tenant_cleaner_ids:
             TimeLog.query.filter(TimeLog.cleaner_id.in_(tenant_cleaner_ids)).delete(
+                synchronize_session=False
+            )
+        LeaveAdjustment.query.filter_by(owner_id=owner_id).delete(synchronize_session=False)
+        if tenant_cleaner_ids:
+            CleanerPayTerms.query.filter(CleanerPayTerms.cleaner_id.in_(tenant_cleaner_ids)).delete(
                 synchronize_session=False
             )
         Cleaner.query.filter_by(owner_id=owner_id).delete(synchronize_session=False)

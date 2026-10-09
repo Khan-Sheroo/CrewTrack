@@ -3,6 +3,10 @@
 
 {% block title %}Monthly Totals - Cleaning Time Logger{% endblock %}
 
+{% macro overtime_note(pay, hours) -%}
+{% if pay and pay > 0 %}<small class="overtime-note d-block fw-normal">incl. OT {{ pay|money }} ({{ '%g'|format(hours|round(2)) }}h)</small>{% endif %}
+{%- endmacro %}
+
 {% macro wage_share(amount) -%}
     {% if category_totals.grand_total > 0 %}
         <span class="text-muted ms-1">({{ "%.1f"|format(amount / category_totals.grand_total * 100) }}%)</span>
@@ -132,6 +136,23 @@
         font-weight: 500;
         color: #6c757d;
     }
+    [data-bs-theme="dark"] .btn-bw {
+        --bs-btn-color: #fff;
+        --bs-btn-border-color: #fff;
+        --bs-btn-hover-color: #000;
+        --bs-btn-hover-bg: #fff;
+        --bs-btn-hover-border-color: #fff;
+        --bs-btn-active-color: #000;
+        --bs-btn-active-bg: #fff;
+        --bs-btn-active-border-color: #fff;
+    }
+    .monthly-totals-table .overtime-note {
+        font-size: 0.72em;
+        color: #b45309;
+    }
+    [data-bs-theme="dark"] .monthly-totals-table .overtime-note {
+        color: #fbbf24;
+    }
     .monthly-totals-table .total-with-share {
         display: inline-flex;
         align-items: baseline;
@@ -206,10 +227,16 @@
                     {% endif %}
                 </div>
                 <div class="d-flex gap-2">
-                    <button type="button" id="monthly-print-btn" class="btn btn-outline-success btn-sm no-print">
+                    <button type="button" class="btn btn-outline-dark btn-bw btn-sm no-print" data-bs-toggle="modal" data-bs-target="#casualInvoiceModal">
+                        <i class="fas fa-file-invoice-dollar me-2"></i>Casual Invoice
+                    </button>
+                    <button type="button" class="btn btn-outline-dark btn-bw btn-sm no-print" data-bs-toggle="modal" data-bs-target="#overtimeSheetModal">
+                        <i class="fas fa-business-time me-2"></i>Overtime Sheet
+                    </button>
+                    <button type="button" id="monthly-print-btn" class="btn btn-outline-dark btn-bw btn-sm no-print">
                         <i class="fas fa-print me-2"></i>Print
                     </button>
-                    <a href="{{ url_for('index') }}" class="btn btn-outline-primary btn-sm no-print">
+                    <a href="{{ url_for('index') }}" class="btn btn-outline-dark btn-bw btn-sm no-print">
                         <i class="fas fa-arrow-left me-2"></i>Back to Home
                     </a>
                 </div>
@@ -256,8 +283,10 @@
                                     </tr>
                                     {% for cleaner_name, cleaner_data in staff_members.items() %}
                                         {% set staff_slug = (category_name ~ '-' ~ cleaner_name)|replace(' ', '-')|replace("'", '')|replace(',', '')|lower %}
-                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, total_leave=0, total_paid_leave=0, total_sick_leave=0) %}
+                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, total_leave=0, total_paid_leave=0, total_sick_leave=0, ot_pay=0, ot_hours=0) %}
                                         {% for month_key, month_data in cleaner_data['months'].items() %}
+                                            {% set ns.ot_pay = ns.ot_pay + month_data.get('overtime_pay', 0) %}
+                                            {% set ns.ot_hours = ns.ot_hours + month_data.get('overtime_hours', 0) %}
                                             {% set ns.total_hours = ns.total_hours + month_data['hours'] %}
                                             {% set ns.total_entries = ns.total_entries + month_data['entries'] %}
                                             {% set ns.total_leave = ns.total_leave + month_data.get('leave_days', 0) %}
@@ -292,7 +321,7 @@
                                             <td class="entries-col">{{ ns.total_entries }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(ns.total_hours) }}</td>
                                             <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
-                                            <td class="total-col">{{ ns.total_pay|money }}</td>
+                                            <td class="total-col">{{ ns.total_pay|money }}{{ overtime_note(ns.ot_pay, ns.ot_hours) }}</td>
                                         </tr>
                                         {% if can_expand_staff %}
                                         {% for month_key, month_data in cleaner_data['months'].items() %}
@@ -306,7 +335,7 @@
                                             <td class="entries-col">{{ month_data['entries'] }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(month_data['hours']) }}</td>
                                             <td class="rate-col">{{ month_data['rate_label'] }}</td>
-                                            <td class="total-col">{{ month_data['total']|money }}</td>
+                                            <td class="total-col">{{ month_data['total']|money }}{{ overtime_note(month_data.get('overtime_pay', 0), month_data.get('overtime_hours', 0)) }}</td>
                                         </tr>
                                         {% endfor %}
                                         {% endif %}
@@ -398,6 +427,76 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="casualInvoiceModal" tabindex="-1" aria-labelledby="casualInvoiceModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="GET" action="{{ url_for('casual_invoice') }}" target="_blank">
+            <div class="modal-header">
+                <h5 class="modal-title" id="casualInvoiceModalLabel">Casual Staff Invoice</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                {% if casual_staff %}
+                <div class="mb-3">
+                    <label for="casual_invoice_staff" class="form-label">Staff member</label>
+                    <select class="form-select" id="casual_invoice_staff" name="cleaner_id" required>
+                        {% for staff in casual_staff %}
+                        <option value="{{ staff.id }}">{{ staff.name }}{% if staff.category %} ({{ staff.category }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="casual_invoice_month" class="form-label">Month</label>
+                    <input type="month" class="form-control" id="casual_invoice_month" name="month" value="{{ casual_invoice_month }}" required>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No casual staff yet. Mark a staff member as <strong>Casual</strong> when adding or editing them.</p>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                {% if casual_staff %}
+                <button type="submit" class="btn btn-dark btn-bw"><i class="fas fa-file-invoice-dollar me-2"></i>Open Invoice</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="overtimeSheetModal" tabindex="-1" aria-labelledby="overtimeSheetModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="GET" action="{{ url_for('overtime_sheet') }}" target="_blank">
+            <div class="modal-header">
+                <h5 class="modal-title" id="overtimeSheetModalLabel">Overtime Sheet</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                {% if overtime_staff %}
+                <div class="mb-3">
+                    <label for="overtime_sheet_staff" class="form-label">Staff member</label>
+                    <select class="form-select" id="overtime_sheet_staff" name="cleaner_id" required>
+                        {% for staff in overtime_staff %}
+                        <option value="{{ staff.id }}">{{ staff.name }} ({{ staff.employment_type|capitalize }}{% if staff.category %}, {{ staff.category }}{% endif %})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="overtime_sheet_month" class="form-label">Month</label>
+                    <input type="month" class="form-control" id="overtime_sheet_month" name="month" value="{{ casual_invoice_month }}" required>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No staff earn overtime. Only <strong>Local</strong> staff are paid overtime.</p>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                {% if overtime_staff %}
+                <button type="submit" class="btn btn-dark btn-bw"><i class="fas fa-business-time me-2"></i>Open Sheet</button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -461,6 +560,7 @@ document.addEventListener('DOMContentLoaded', function() {
             'th.total-col, td.total-col { width: 12%; font-weight: 700; }' +
             'tr.staff-row td.total-col { white-space: nowrap; }' +
             '.total-with-share { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }' +
+            '.overtime-note { display: block; font-size: 5.5pt; font-weight: 400; color: #555; }' +
             'tr.staff-category-header td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
             'tr.month-detail-row td { color: #444; font-size: 6.5pt; }' +
             'tr.month-detail-row td.staff-col { padding-left: 10px; font-weight: 500; }' +

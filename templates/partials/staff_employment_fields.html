@@ -1,0 +1,59 @@
+<div class="row g-2 mb-3">
+    <div class="col-6">
+        <label for="staff_residency" class="form-label">Local / Expat</label>
+        <select class="form-select" id="staff_residency" name="residency" data-employment-field>
+            <option value="local" selected>Local</option>
+            <option value="expat">Expat</option>
+        </select>
+    </div>
+    <div class="col-6">
+        <label for="staff_employment_type" class="form-label">Permanent / Casual</label>
+        <select class="form-select" id="staff_employment_type" name="employment_type" data-employment-field>
+            <option value="permanent" selected>Permanent</option>
+            <option value="casual">Casual</option>
+        </select>
+    </div>
+    <div class="col-12">
+        <div class="form-text" id="staff_employment_hint"></div>
+    </div>
+</div>
+<script>
+(function() {
+    const CASUAL_RATE = {{ local_casual_hourly_rate|tojson }};
+    const OVERTIME_RATE = {{ overtime_hourly_rate|tojson }};
+    const OVERTIME_THRESHOLD = {{ overtime_threshold_hours|tojson }};
+    const residency = document.getElementById('staff_residency');
+    const employment = document.getElementById('staff_employment_type');
+    const hint = document.getElementById('staff_employment_hint');
+    if (!residency || !employment) return;
+
+    function describe() {
+        if (residency.value === 'expat') {
+            hint.textContent = 'Expats are paid a monthly salary only, with no overtime.';
+        } else if (employment.value === 'casual') {
+            hint.textContent = 'Local casual: ' + formatMoney(CASUAL_RATE) + '/hr, plus ' + formatMoney(OVERTIME_RATE) + '/hr for hours over ' + OVERTIME_THRESHOLD + ' in a shift.';
+        } else {
+            hint.textContent = 'Local permanent: fixed salary, plus ' + formatMoney(OVERTIME_RATE) + '/hr for hours over ' + OVERTIME_THRESHOLD + ' in a shift.';
+        }
+    }
+
+    function applyDefaultRate() {
+        const rateType = document.getElementById('staff_rate_type');
+        const rateAmount = document.getElementById('staff_rate_amount');
+        if (!rateType) return;
+        const wantsHourly = residency.value === 'local' && employment.value === 'casual';
+        rateType.value = wantsHourly ? 'hourly' : 'monthly';
+        if (wantsHourly && rateAmount) rateAmount.value = CASUAL_RATE;
+        rateType.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    [residency, employment].forEach(function(select) {
+        select.addEventListener('change', function() {
+            applyDefaultRate();
+            describe();
+        });
+    });
+    window.refreshStaffEmploymentHint = describe;
+    document.addEventListener('DOMContentLoaded', describe);
+})();
+</script>

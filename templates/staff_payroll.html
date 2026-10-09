@@ -154,7 +154,10 @@
                                    spellcheck="false"
                                    aria-label="ID number for {{ staff.name }}">
                         </td>
-                        <td class="rate-type-col text-capitalize">{{ staff.rate_type }}</td>
+                        <td class="rate-type-col text-capitalize">
+                            {{ staff.rate_type }}
+                            <small class="d-block text-muted">{{ staff.residency }} · {{ staff.employment_type }}</small>
+                        </td>
                         <td class="rate-col">{{ staff.rate_label }}</td>
                         <td class="actions-col">
                             <div class="d-flex justify-content-center gap-1">
@@ -166,7 +169,9 @@
                                         data-staff-category="{{ staff.category }}"
                                         data-staff-rate-type="{{ staff.rate_type }}"
                                         data-staff-rate-amount="{{ staff.rate_amount }}"
-                                        data-staff-flat-monthly="{{ 'true' if staff.flat_monthly else 'false' }}">
+                                        data-staff-flat-monthly="{{ 'true' if staff.flat_monthly else 'false' }}"
+                                        data-staff-residency="{{ staff.residency }}"
+                                        data-staff-employment-type="{{ staff.employment_type }}">
                                     <i class="fas fa-edit"></i>
                                 </button>
                                 <button type="button" class="btn btn-sm btn-outline-warning staff-action-btn archive-staff-btn"
@@ -425,6 +430,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (staffRateType) staffRateType.value = values.rateType || 'monthly';
         document.getElementById('staff_rate_amount').value = values.rateAmount || '';
         if (staffFlatMonthly) staffFlatMonthly.checked = values.flatMonthly === true;
+        const staffResidency = document.getElementById('staff_residency');
+        const staffEmploymentType = document.getElementById('staff_employment_type');
+        if (staffResidency) staffResidency.value = values.residency || 'local';
+        if (staffEmploymentType) staffEmploymentType.value = values.employmentType || 'permanent';
+        if (window.refreshStaffEmploymentHint) window.refreshStaffEmploymentHint();
         toggleFlatMonthlyOption();
         toggleNewCategoryField();
     }
@@ -452,6 +462,8 @@ document.addEventListener('DOMContentLoaded', function() {
             rateType: button.dataset.staffRateType,
             rateAmount: button.dataset.staffRateAmount,
             flatMonthly: button.dataset.staffFlatMonthly === 'true',
+            residency: button.dataset.staffResidency,
+            employmentType: button.dataset.staffEmploymentType,
         });
         if (staffFormModal) staffFormModal.show();
     }

@@ -3,6 +3,10 @@
 
 {% block title %}Weekly Totals - Cleaning Time Logger{% endblock %}
 
+{% macro overtime_note(pay, hours) -%}
+{% if pay and pay > 0 %}<small class="overtime-note d-block fw-normal">incl. OT {{ pay|money }} ({{ '%g'|format(hours|round(2)) }}h)</small>{% endif %}
+{%- endmacro %}
+
 {% macro wage_share(amount) -%}
     {% if category_totals.grand_total > 0 %}
         <span class="text-muted ms-1">({{ "%.1f"|format(amount / category_totals.grand_total * 100) }}%)</span>
@@ -132,6 +136,13 @@
         font-weight: 500;
         color: #6c757d;
     }
+    .weekly-totals-table .overtime-note {
+        font-size: 0.72em;
+        color: #b45309;
+    }
+    [data-bs-theme="dark"] .weekly-totals-table .overtime-note {
+        color: #fbbf24;
+    }
     .weekly-totals-table .total-with-share {
         display: inline-flex;
         align-items: baseline;
@@ -247,8 +258,10 @@
                                     </tr>
                                     {% for cleaner_name, cleaner_data in staff_members.items() %}
                                         {% set staff_slug = (category_name ~ '-' ~ cleaner_name)|replace(' ', '-')|replace("'", '')|replace(',', '')|lower %}
-                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, total_leave=0, total_paid_leave=0, total_sick_leave=0) %}
+                                        {% set ns = namespace(total_hours=0, total_entries=0, total_pay=0, total_leave=0, total_paid_leave=0, total_sick_leave=0, ot_pay=0, ot_hours=0) %}
                                         {% for week_key, week_data in cleaner_data['weeks'].items() %}
+                                            {% set ns.ot_pay = ns.ot_pay + week_data.get('overtime_pay', 0) %}
+                                            {% set ns.ot_hours = ns.ot_hours + week_data.get('overtime_hours', 0) %}
                                             {% set ns.total_hours = ns.total_hours + week_data['hours'] %}
                                             {% set ns.total_entries = ns.total_entries + week_data['entries'] %}
                                             {% set ns.total_leave = ns.total_leave + week_data.get('leave_days', 0) %}
@@ -285,7 +298,7 @@
                                             <td class="entries-col">{{ ns.total_entries }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(ns.total_hours) }}</td>
                                             <td class="rate-col">{{ cleaner_data['rate_label'] }}</td>
-                                            <td class="total-col">{% if cleaner_data.get('paid_monthly') %}—{% else %}{{ ns.total_pay|money }}{% endif %}</td>
+                                            <td class="total-col">{% if cleaner_data.get('paid_monthly') %}—{% else %}{{ ns.total_pay|money }}{{ overtime_note(ns.ot_pay, ns.ot_hours) }}{% endif %}</td>
                                         </tr>
                                         {% if can_expand_staff %}
                                         {% for week_key, week_data in cleaner_data['weeks'].items() %}
@@ -298,7 +311,7 @@
                                             <td class="entries-col">{{ week_data['entries'] }}</td>
                                             <td class="hours-col">{{ "%.1f"|format(week_data['hours']) }}</td>
                                             <td class="rate-col">{{ week_data['rate_label'] }}</td>
-                                            <td class="total-col">{% if week_data.get('paid_monthly') %}—{% else %}{{ week_data['total']|money }}{% endif %}</td>
+                                            <td class="total-col">{% if week_data.get('paid_monthly') %}—{% else %}{{ week_data['total']|money }}{{ overtime_note(week_data.get('overtime_pay', 0), week_data.get('overtime_hours', 0)) }}{% endif %}</td>
                                         </tr>
                                         {% endfor %}
                                         {% endif %}
@@ -453,6 +466,7 @@ document.addEventListener('DOMContentLoaded', function() {
             'th.total-col, td.total-col { width: 12%; font-weight: 700; }' +
             'tr.staff-row td.total-col { white-space: nowrap; }' +
             '.total-with-share { display: inline-flex; align-items: baseline; gap: 3px; white-space: nowrap; }' +
+            '.overtime-note { display: block; font-size: 5.5pt; font-weight: 400; color: #555; }' +
             'tr.staff-category-header td { background: #f0f0f0; text-align: left; font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 4px; }' +
             'tr.week-detail-row td { color: #444; font-size: 6.5pt; }' +
             'tr.week-detail-row td.staff-col { padding-left: 10px; font-weight: 500; }' +
