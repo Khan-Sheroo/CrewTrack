@@ -777,6 +777,11 @@
                         </div>
                     </div>
                     <div class="small fw-semibold mb-3" id="shift-total-hours"></div>
+                    <div class="mb-3 d-none" id="shift-custom-rate-wrap">
+                        <label for="shift-custom-rate" class="form-label">Custom rate <span class="text-muted fw-normal">(optional)</span></label>
+                        <input type="number" class="form-control form-control-sm" id="shift-custom-rate" min="0" step="0.01" inputmode="decimal" autocomplete="off">
+                        <div class="form-text" id="shift-custom-rate-hint"></div>
+                    </div>
                     <div class="mb-0">
                         <label for="shift-site-select" class="form-label">Site</label>
                         <select class="form-select form-select-sm" id="shift-site-select">
@@ -1229,6 +1234,9 @@ function initWeeklyShiftRoster() {
     const shiftStartInput2 = document.getElementById('shift-start-time-2');
     const shiftEndInput2 = document.getElementById('shift-end-time-2');
     const shiftTotalHours = document.getElementById('shift-total-hours');
+    const shiftCustomRateWrap = document.getElementById('shift-custom-rate-wrap');
+    const shiftCustomRateInput = document.getElementById('shift-custom-rate');
+    const shiftCustomRateHint = document.getElementById('shift-custom-rate-hint');
     const shiftTimeSaveBtn = document.getElementById('shift-time-save');
     const shiftTimeClearBtn = document.getElementById('shift-time-clear');
     const shiftSetOffBtn = document.getElementById('shift-set-off');
@@ -1352,7 +1360,7 @@ function initWeeklyShiftRoster() {
         return padded;
     }
 
-    function shiftDay(start, end, siteId, start2, end2) {
+    function shiftDay(start, end, siteId, start2, end2, customRate) {
         const slot = {
             status: 'shift',
             start: start || null,
@@ -1362,6 +1370,10 @@ function initWeeklyShiftRoster() {
         if (start2 && end2) {
             slot.start2 = start2;
             slot.end2 = end2;
+        }
+        const rate = Number(customRate);
+        if (customRate != null && customRate !== '' && rate > 0) {
+            slot.custom_rate = Math.round(rate * 100) / 100;
         }
         return slot;
     }
@@ -1409,7 +1421,7 @@ function initWeeklyShiftRoster() {
         if (status === 'leave') return leaveDay(day.requested);
         if (status === 'sick_leave') return sickLeaveDay();
         if (status === 'paid_leave') return paidLeaveDay();
-        if (status === 'shift') return shiftDay(day.start || null, day.end || null, day.site_id || null, day.start2, day.end2);
+        if (status === 'shift') return shiftDay(day.start || null, day.end || null, day.site_id || null, day.start2, day.end2, day.custom_rate);
         return emptyDay();
     }
 
@@ -1458,7 +1470,7 @@ function initWeeklyShiftRoster() {
         if (slot.status === 'leave') return leaveDay(slot.requested);
         if (slot.status === 'sick_leave') return sickLeaveDay();
         if (slot.status === 'paid_leave') return paidLeaveDay();
-        return shiftDay(slot.start, slot.end, slot.site_id, slot.start2, slot.end2);
+        return shiftDay(slot.start, slot.end, slot.site_id, slot.start2, slot.end2, slot.custom_rate);
     }
 
     function formatDayCellHtml(day) {
@@ -1614,7 +1626,7 @@ function initWeeklyShiftRoster() {
             if (slot.status !== 'shift') return;
             if (rateType === 'hourly' && (!slot.start || !slot.end)) return;
             const hours = slotShiftHours(slot);
-            totalPay += calculateShiftPay(staff, rateType, rateAmount, hours, dayIndex);
+            totalPay += calculateShiftPay(staff, rateType, slot.custom_rate || rateAmount, hours, dayIndex);
             overtimeHours += getShiftOvertimeHours(staff, hours);
         });
 
@@ -1717,7 +1729,7 @@ function initWeeklyShiftRoster() {
 
                 if (!staff || !rateAmount || rateType === 'monthly') return;
                 if (rateType === 'daily' || (rateType === 'hourly' && hours > 0)) {
-                    bucket.pay += calculateShiftPay(staff, rateType, rateAmount, hours, dayIndex);
+                    bucket.pay += calculateShiftPay(staff, rateType, slot.custom_rate || rateAmount, hours, dayIndex);
                     bucket.hasPay = true;
                 }
             });
@@ -2392,6 +2404,7 @@ function initWeeklyShiftRoster() {
         if (shiftStartInput2) shiftStartInput2.value = double ? formatTimeLabel(slot.start2) : '';
         if (shiftEndInput2) shiftEndInput2.value = double ? formatTimeLabel(slot.end2) : '';
         toggleSecondShiftFields();
+        setupCustomRateField(row, isShift ? slot : null);
         if (shiftRequestedInput) shiftRequestedInput.checked = !!(slot && slot.requested);
         shiftTimeModal.show();
         if (slot && slot.status === 'off') {
@@ -2405,6 +2418,30 @@ function initWeeklyShiftRoster() {
         } else {
             shiftStartInput.focus();
         }
+    }
+
+    function setupCustomRateField(row, slot) {
+        if (!shiftCustomRateWrap || !shiftCustomRateInput) return;
+        const staff = getStaffForRow(row);
+        const isCasual = !!(staff && staff.employment_type === 'casual');
+        shiftCustomRateWrap.classList.toggle('d-none', !isCasual);
+        shiftCustomRateInput.value = isCasual && slot && slot.custom_rate ? slot.custom_rate : '';
+        if (!isCasual) return;
+        const rateType = normalizeRateType(staff.rate_type);
+        const unit = rateType === 'hourly' ? 'per hour' : 'per shift';
+        let hint = 'Leave blank to use the usual rate';
+        if (staff.rate_amount != null) {
+            hint += ' (' + formatMoney(Number(staff.rate_amount)) + ' ' + unit + ')';
+        }
+        shiftCustomRateHint.textContent = hint + '. Custom rate is ' + unit + '; overtime still applies.';
+    }
+
+    function readCustomRate() {
+        if (!shiftCustomRateWrap || shiftCustomRateWrap.classList.contains('d-none')) return null;
+        const raw = shiftCustomRateInput.value.trim();
+        if (!raw) return null;
+        const value = Number(raw);
+        return value > 0 ? value : null;
     }
 
     function closeShiftTimeModal() {
@@ -3313,7 +3350,16 @@ function initWeeklyShiftRoster() {
             shiftEndInput2.value = end2;
         }
 
-        applyShiftEdit(shiftDay(start, end, getSelectedSiteId(), start2, end2));
+        const customRateRaw = shiftCustomRateInput && !shiftCustomRateWrap.classList.contains('d-none')
+            ? shiftCustomRateInput.value.trim() : '';
+        const customRate = readCustomRate();
+        if (customRateRaw && customRate == null) {
+            setStatus('Custom rate must be a number above 0, or leave it blank.', 'error');
+            shiftCustomRateInput.focus();
+            return false;
+        }
+
+        applyShiftEdit(shiftDay(start, end, getSelectedSiteId(), start2, end2, customRate));
         closeShiftTimeModal();
         return true;
     }
@@ -3418,6 +3464,14 @@ function initWeeklyShiftRoster() {
         shiftStartInput2.addEventListener('blur', function() {
             normalizeTimeInput(shiftStartInput2);
             updateShiftTotalHours();
+        });
+    }
+
+    if (shiftCustomRateInput) {
+        shiftCustomRateInput.addEventListener('keydown', function(event) {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            saveShiftTimes();
         });
     }
 

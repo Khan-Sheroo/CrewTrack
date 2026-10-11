@@ -72,6 +72,7 @@ class TimeLog(db.Model):
     end_time = db.Column(db.Time, nullable=True)
     start_time_2 = db.Column(db.Time, nullable=True)  # second half of a double shift
     end_time_2 = db.Column(db.Time, nullable=True)
+    custom_rate = db.Column(db.Float, nullable=True)  # one-off rate for this shift, in the staff member's pay unit
     hours_worked = db.Column(db.Float, nullable=True)
     entry_kind = db.Column(db.String(20), nullable=False, default='worked')
     notes = db.Column(db.Text)
@@ -961,6 +962,8 @@ def ensure_time_log_schema() -> None:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN start_time_2 TIME"))
     if 'end_time_2' not in existing_columns:
         db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN end_time_2 TIME"))
+    if 'custom_rate' not in existing_columns:
+        db.session.execute(db.text("ALTER TABLE time_log ADD COLUMN custom_rate FLOAT"))
 
     db.session.commit()
 
@@ -1139,12 +1142,36 @@ class CleanerTermsView:
         return getattr(self._cleaner, name)
 
 
+class CustomRateTerms:
+    """Pay terms for a single shift logged at a custom rate (per hour for hourly staff, else per shift)."""
+
+    is_custom_rate = True
+
+    def __init__(self, base_terms, custom_rate: float):
+        self._base = base_terms
+        self.rate_type = 'hourly' if normalize_rate_type(base_terms.rate_type) == 'hourly' else 'daily'
+        self.rate_amount = float(custom_rate)
+        self.flat_monthly = False
+        self.terms_key = (getattr(base_terms, 'terms_key', None), 'custom', self.rate_amount)
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)
+
+
+def has_custom_rate_periods(periods: dict) -> bool:
+    return any('(custom)' in (period.get('rate_label') or '') for period in periods.values())
+
+
 class PayLog:
     """A time log whose .cleaner carries the pay terms in force on the log's date."""
 
     def __init__(self, log: "TimeLog"):
         self._log = log
-        self.cleaner = cleaner_as_of(log.cleaner, log.date)
+        terms = cleaner_as_of(log.cleaner, log.date)
+        custom_rate = getattr(log, 'custom_rate', None)
+        if terms is not None and custom_rate:
+            terms = CustomRateTerms(terms, custom_rate)
+        self.cleaner = terms
 
     def __getattr__(self, name):
         return getattr(self._log, name)
@@ -1384,6 +1411,8 @@ def price_pay_segment(terms, bucket: dict, days_in_month: int, full_monthly_amou
         )
     else:
         label = format_rate_label(rate_type, rate_amount, flat_monthly=flat_monthly)
+    if getattr(terms, 'is_custom_rate', False):
+        label += ' (custom)'
     return {
         'rate_type': normalized_rate_type,
         'flat_monthly': flat_monthly,
@@ -2031,6 +2060,8 @@ def get_weekly_totals(filter_year=None, filter_month=None, date_from=None, date_
                     rate_amount,
                     flat_monthly=flat_monthly,
                 )
+            if has_custom_rate_periods(cleaner_data['weeks']):
+                cleaner_data['rate_label'] += ' + custom rate shifts'
         else:
             cleaner_data['paid_monthly'] = False
             cleaner_data['rate_label'] = '—'
@@ -2189,6 +2220,8 @@ def get_monthly_totals(filter_year=None, filter_month=None, date_from=None, date
                     rate_amount,
                     flat_monthly=flat_monthly,
                 )
+            if has_custom_rate_periods(cleaner_data['months']):
+                cleaner_data['rate_label'] += ' + custom rate shifts'
         else:
             cleaner_data['rate_label'] = '—'
             cleaner_data['paid_monthly'] = False
@@ -2542,7 +2575,19 @@ def normalize_shift_day(raw_day, allowed_site_ids: set | None = None) -> dict | 
     if start2 and end2:
         slot['start2'] = start2
         slot['end2'] = end2
+    custom_rate = normalize_custom_rate(raw_day.get('custom_rate'))
+    if custom_rate is not None:
+        slot['custom_rate'] = custom_rate
     return slot
+
+
+def normalize_custom_rate(value) -> float | None:
+    """Return a positive custom shift rate rounded to cents, or None."""
+    try:
+        rate = round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+    return rate if 0 < rate < 1_000_000 else None
 
 
 def normalize_shift_roster_rows(raw_rows, owner_id: int | None = None) -> list[dict]:
@@ -2680,6 +2725,7 @@ def build_roster_log_payload(cleaner: "Cleaner", day_slot: dict) -> dict | None:
         'end_time_2': end_time_2,
         'hours_worked': hours_worked,
         'site_id': site_id,
+        'custom_rate': normalize_custom_rate(day_slot.get('custom_rate')),
     }
 
     if rate_type == 'hourly':
@@ -2701,6 +2747,7 @@ def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
     log.end_time = payload.get('end_time')
     log.start_time_2 = payload.get('start_time_2')
     log.end_time_2 = payload.get('end_time_2')
+    log.custom_rate = payload.get('custom_rate')
     log.hours_worked = payload.get('hours_worked')
     log.site_id = payload.get('site_id')
 
@@ -2763,6 +2810,7 @@ def sync_roster_week_to_time_logs(owner_id: int, week_start: date, rows: list[di
             end_time=payload.get('end_time'),
             start_time_2=payload.get('start_time_2'),
             end_time_2=payload.get('end_time_2'),
+            custom_rate=payload.get('custom_rate'),
             hours_worked=payload.get('hours_worked'),
             site_id=payload.get('site_id'),
         ))
@@ -3310,6 +3358,7 @@ def index():
             'rate_amount': rate_amount,
             'flat_monthly': is_flat_monthly(cleaner),
             'overtime_eligible': is_overtime_eligible(cleaner),
+            'employment_type': normalize_employment_type(cleaner.employment_type),
         })
     shift_category_order = sort_display_categories({staff['group'] for staff in shift_active_staff})
     owner_id = get_current_owner_id()
