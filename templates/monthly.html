@@ -227,12 +227,14 @@
                     {% endif %}
                 </div>
                 <div class="d-flex gap-2">
+                    {% if employment_rules_active %}
                     <button type="button" class="btn btn-outline-dark btn-bw btn-sm no-print" data-bs-toggle="modal" data-bs-target="#casualInvoiceModal">
                         <i class="fas fa-file-invoice-dollar me-2"></i>Casual Invoice
                     </button>
                     <button type="button" class="btn btn-outline-dark btn-bw btn-sm no-print" data-bs-toggle="modal" data-bs-target="#overtimeSheetModal">
                         <i class="fas fa-business-time me-2"></i>Overtime Sheet
                     </button>
+                    {% endif %}
                     <button type="button" id="monthly-print-btn" class="btn btn-outline-dark btn-bw btn-sm no-print">
                         <i class="fas fa-print me-2"></i>Print
                     </button>
@@ -428,6 +430,7 @@
     </div>
 </div>
 
+{% if employment_rules_active %}
 <div class="modal fade" id="casualInvoiceModal" tabindex="-1" aria-labelledby="casualInvoiceModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <form class="modal-content" method="GET" action="{{ url_for('casual_invoice') }}" target="_blank">
@@ -497,6 +500,7 @@
         </form>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

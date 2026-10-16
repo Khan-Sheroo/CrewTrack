@@ -19,6 +19,7 @@
 </div>
 <script>
 (function() {
+    const RULES_ACTIVE = {{ employment_rules_active|tojson }};
     const CASUAL_RATE = {{ local_casual_hourly_rate|tojson }};
     const OVERTIME_RATE = {{ overtime_hourly_rate|tojson }};
     const OVERTIME_THRESHOLD = {{ overtime_threshold_hours|tojson }};
@@ -28,6 +29,10 @@
     if (!residency || !employment) return;
 
     function describe() {
+        if (!RULES_ACTIVE) {
+            hint.textContent = 'Local / expat, casual / permanent, and overtime only change pay when the currency is SCR.';
+            return;
+        }
         if (residency.value === 'expat') {
             hint.textContent = 'Expats are paid a monthly salary only, with no overtime.';
         } else if (employment.value === 'casual') {
@@ -38,6 +43,7 @@
     }
 
     function applyDefaultRate() {
+        if (!RULES_ACTIVE) return;
         const rateType = document.getElementById('staff_rate_type');
         const rateAmount = document.getElementById('staff_rate_amount');
         if (!rateType) return;

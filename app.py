@@ -726,7 +726,9 @@ def normalize_employment_type(value: str | None) -> str:
 
 
 def is_overtime_eligible(cleaner: "Cleaner | None") -> bool:
-    """Local staff (permanent or casual) earn overtime; expats are salary only."""
+    """Local staff earn overtime in SCR. Expats, and every other currency, do not."""
+    if not employment_rules_active():
+        return False
     return cleaner is not None and normalize_residency(getattr(cleaner, 'residency', None)) == 'local'
 
 
@@ -1169,7 +1171,12 @@ class PayLog:
         self._log = log
         terms = cleaner_as_of(log.cleaner, log.date)
         custom_rate = getattr(log, 'custom_rate', None)
-        if terms is not None and custom_rate:
+        if (
+            terms is not None
+            and custom_rate
+            and employment_rules_active()
+            and normalize_employment_type(getattr(terms, 'employment_type', None)) == 'casual'
+        ):
             terms = CustomRateTerms(terms, custom_rate)
         self.cleaner = terms
 
@@ -1255,6 +1262,14 @@ def get_selected_currency_code() -> str:
     """Return the active display currency for the current session."""
     code = (session.get('currency') or BASE_CURRENCY).upper()
     return code if code in CURRENCIES else BASE_CURRENCY
+
+
+def employment_rules_active() -> bool:
+    """Casual/permanent, local/expat, and overtime rules apply only in Seychelles rupees."""
+    try:
+        return get_selected_currency_code() == 'SCR'
+    except RuntimeError:
+        return False
 
 
 def get_currency_config(currency_code: str | None = None) -> dict:
@@ -2747,7 +2762,9 @@ def apply_roster_log_fields(log: "TimeLog", payload: dict) -> None:
     log.end_time = payload.get('end_time')
     log.start_time_2 = payload.get('start_time_2')
     log.end_time_2 = payload.get('end_time_2')
-    log.custom_rate = payload.get('custom_rate')
+    incoming_rate = payload.get('custom_rate')
+    if employment_rules_active() or incoming_rate is not None:
+        log.custom_rate = incoming_rate
     log.hours_worked = payload.get('hours_worked')
     log.site_id = payload.get('site_id')
 
@@ -2863,6 +2880,7 @@ def build_shift_roster_bootstrap_data(
         'publicHolidayMultiplier': PUBLIC_HOLIDAY_HOURLY_MULTIPLIER if PREMIUM_PAY_ENABLED else 1.0,
         'overtimeRate': OVERTIME_HOURLY_RATE,
         'overtimeThresholdHours': OVERTIME_THRESHOLD_HOURS,
+        'employmentRulesActive': employment_rules_active(),
         'sites': shift_sites or [],
     }
 
@@ -3155,6 +3173,7 @@ def inject_current_user():
         'local_casual_hourly_rate': LOCAL_CASUAL_HOURLY_RATE,
         'overtime_hourly_rate': OVERTIME_HOURLY_RATE,
         'overtime_threshold_hours': OVERTIME_THRESHOLD_HOURS,
+        'employment_rules_active': employment_rules_active(),
         'currency_code': currency['code'],
         'currency_symbol': currency['symbol'],
         'currency_label': currency['label'],
@@ -4170,6 +4189,9 @@ def _resolve_print_sheet_request():
 @app.route('/monthly/overtime-sheet')
 def overtime_sheet():
     """Printable monthly overtime sheet for a local staff member."""
+    if not employment_rules_active():
+        flash('Overtime only applies when the currency is SCR.', 'error')
+        return redirect(url_for('monthly_totals'))
     cleaner, year, month = _resolve_print_sheet_request()
     if not cleaner:
         flash('Please choose a staff member for the overtime sheet', 'error')
@@ -4184,6 +4206,9 @@ def overtime_sheet():
 @app.route('/monthly/casual-invoice')
 def casual_invoice():
     """Printable monthly time sheet and payslip for a casual staff member."""
+    if not employment_rules_active():
+        flash('Casual invoices only apply when the currency is SCR.', 'error')
+        return redirect(url_for('monthly_totals'))
     cleaner, year, month = _resolve_print_sheet_request()
     if not cleaner:
         flash('Please choose a staff member for the invoice', 'error')

@@ -1145,6 +1145,7 @@ const SHIFT_SUNDAY_MULTIPLIER = shiftRosterBootstrap.sundayMultiplier || 1.5;
 const SHIFT_PH_MULTIPLIER = shiftRosterBootstrap.publicHolidayMultiplier || 2;
 const SHIFT_OVERTIME_RATE = shiftRosterBootstrap.overtimeRate || 70;
 const SHIFT_OVERTIME_THRESHOLD = shiftRosterBootstrap.overtimeThresholdHours || 8;
+const SHIFT_EMPLOYMENT_RULES = !!shiftRosterBootstrap.employmentRulesActive;
 let SHIFT_SITES = shiftRosterBootstrap.sites || [];
 </script>
 {% if wage_comparison.has_data %}
@@ -1626,7 +1627,7 @@ function initWeeklyShiftRoster() {
             if (slot.status !== 'shift') return;
             if (rateType === 'hourly' && (!slot.start || !slot.end)) return;
             const hours = slotShiftHours(slot);
-            totalPay += calculateShiftPay(staff, rateType, slot.custom_rate || rateAmount, hours, dayIndex);
+            totalPay += calculateShiftPay(staff, rateType, shiftPayRate(staff, slot, rateAmount), hours, dayIndex);
             overtimeHours += getShiftOvertimeHours(staff, hours);
         });
 
@@ -1648,8 +1649,13 @@ function initWeeklyShiftRoster() {
         return html;
     }
 
+    function shiftPayRate(staff, slot, rateAmount) {
+        if (!SHIFT_EMPLOYMENT_RULES || !staff || staff.employment_type !== 'casual') return rateAmount;
+        return (slot && slot.custom_rate) || rateAmount;
+    }
+
     function getShiftOvertimeHours(staff, hours) {
-        if (!staff || !staff.overtime_eligible) return 0;
+        if (!SHIFT_EMPLOYMENT_RULES || !staff || !staff.overtime_eligible) return 0;
         return Math.max(0, hours - SHIFT_OVERTIME_THRESHOLD);
     }
 
@@ -1729,7 +1735,7 @@ function initWeeklyShiftRoster() {
 
                 if (!staff || !rateAmount || rateType === 'monthly') return;
                 if (rateType === 'daily' || (rateType === 'hourly' && hours > 0)) {
-                    bucket.pay += calculateShiftPay(staff, rateType, slot.custom_rate || rateAmount, hours, dayIndex);
+                    bucket.pay += calculateShiftPay(staff, rateType, shiftPayRate(staff, slot, rateAmount), hours, dayIndex);
                     bucket.hasPay = true;
                 }
             });
@@ -2423,7 +2429,7 @@ function initWeeklyShiftRoster() {
     function setupCustomRateField(row, slot) {
         if (!shiftCustomRateWrap || !shiftCustomRateInput) return;
         const staff = getStaffForRow(row);
-        const isCasual = !!(staff && staff.employment_type === 'casual');
+        const isCasual = SHIFT_EMPLOYMENT_RULES && !!(staff && staff.employment_type === 'casual');
         shiftCustomRateWrap.classList.toggle('d-none', !isCasual);
         shiftCustomRateInput.value = isCasual && slot && slot.custom_rate ? slot.custom_rate : '';
         if (!isCasual) return;
@@ -3352,7 +3358,11 @@ function initWeeklyShiftRoster() {
 
         const customRateRaw = shiftCustomRateInput && !shiftCustomRateWrap.classList.contains('d-none')
             ? shiftCustomRateInput.value.trim() : '';
-        const customRate = readCustomRate();
+        let customRate = readCustomRate();
+        if (!SHIFT_EMPLOYMENT_RULES && activeShiftEdit) {
+            const existing = normalizeDay(rosterRows[activeShiftEdit.rowIndex].days[activeShiftEdit.dayIndex]);
+            customRate = existing && existing.custom_rate ? existing.custom_rate : null;
+        }
         if (customRateRaw && customRate == null) {
             setStatus('Custom rate must be a number above 0, or leave it blank.', 'error');
             shiftCustomRateInput.focus();
