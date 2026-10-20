@@ -1265,6 +1265,10 @@ function initWeeklyShiftRoster() {
     );
     let saveTimer = null;
     let saveInFlight = null;
+    let rosterEpoch = 0;
+    let displayedWeek = SHIFT_WEEK_START;
+    let pendingWeekOffset = 0;
+    let weekNavInFlight = false;
     let activeShiftEdit = null;
     let shiftDragSource = null;
     let selectedShiftCell = null;
@@ -2470,8 +2474,16 @@ function initWeeklyShiftRoster() {
 
     function saveRoster(options) {
         const opts = options || {};
-        const rowsToSave = collectRows();
-        rosterRows = rowsToSave;
+        const epoch = rosterEpoch;
+        const weekToSave = opts.weekStart || currentWeekStart;
+        if (!opts.weekStart && (weekToSave !== displayedWeek || weekToSave !== currentWeekStart)) {
+            return Promise.resolve();
+        }
+
+        const rowsToSave = opts.rows ? opts.rows.map(normalizeRow) : collectRows();
+        if (!opts.rows && epoch === rosterEpoch && currentWeekStart === weekToSave) {
+            rosterRows = rowsToSave;
+        }
         if (!opts.silent) {
             setStatus('Saving…', 'muted');
         }
@@ -2480,7 +2492,7 @@ function initWeeklyShiftRoster() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                week_start: currentWeekStart,
+                week_start: weekToSave,
                 rows: rowsToSave.map(stripRowForSave),
             }),
         })
@@ -2491,6 +2503,9 @@ function initWeeklyShiftRoster() {
             });
         })
         .then(function(data) {
+            if (epoch !== rosterEpoch || currentWeekStart !== weekToSave || displayedWeek !== weekToSave) {
+                return;
+            }
             rosterRows = ensureMinimumRows((data.rows || []).map(normalizeRow), SHIFT_DEFAULT_ROW_COUNT);
             if (rosterRows.length < rowsToSave.length) {
                 for (let i = rosterRows.length; i < rowsToSave.length; i += 1) {
@@ -2507,13 +2522,16 @@ function initWeeklyShiftRoster() {
             }
         })
         .catch(function(error) {
+            if (epoch !== rosterEpoch) return;
             setStatus(error.message || 'Could not save roster.', 'error');
         });
 
-        saveInFlight = request.finally(function() {
-            saveInFlight = null;
+        let tracked;
+        tracked = request.finally(function() {
+            if (saveInFlight === tracked) saveInFlight = null;
         });
-        return saveInFlight;
+        saveInFlight = tracked;
+        return tracked;
     }
 
     const UNDO_LIMIT = 100;
@@ -2577,7 +2595,10 @@ function initWeeklyShiftRoster() {
     function scheduleAutoSave(options) {
         if (!(options && options.skipHistory)) recordUndoState();
         clearTimeout(saveTimer);
+        const epoch = rosterEpoch;
+        const weekToSave = currentWeekStart;
         saveTimer = setTimeout(function() {
+            if (epoch !== rosterEpoch || weekToSave !== currentWeekStart || weekToSave !== displayedWeek) return;
             saveRoster({ silent: true });
         }, 500);
     }
@@ -2868,10 +2889,12 @@ function initWeeklyShiftRoster() {
             });
     }
 
-    function loadWeek(weekStartIso) {
+    function loadWeek(weekStartIso, knownEpoch) {
+        const epoch = knownEpoch == null ? ++rosterEpoch : knownEpoch;
+        if (knownEpoch == null) clearTimeout(saveTimer);
         currentWeekStart = weekStartIso;
         setStatus('Loading…', 'muted');
-        return fetch('/api/weekly-shift-roster?week=' + encodeURIComponent(currentWeekStart))
+        return fetch('/api/weekly-shift-roster?week=' + encodeURIComponent(weekStartIso))
             .then(function(response) {
                 return response.json().then(function(data) {
                     if (!response.ok) throw new Error(data.error || 'Could not load roster');
@@ -2879,7 +2902,9 @@ function initWeeklyShiftRoster() {
                 });
             })
             .then(function(data) {
-                currentWeekStart = data.week_start || currentWeekStart;
+                if (epoch !== rosterEpoch) return;
+                currentWeekStart = data.week_start || weekStartIso;
+                displayedWeek = currentWeekStart;
                 weekDays = normalizeWeekDays(data.days || buildWeekDays(currentWeekStart));
                 rosterRows = ensureMinimumRows((data.rows || []).map(normalizeRow), SHIFT_DEFAULT_ROW_COUNT);
                 render();
@@ -2890,16 +2915,43 @@ function initWeeklyShiftRoster() {
                 window.history.replaceState({}, '', url);
             })
             .catch(function(error) {
+                if (epoch !== rosterEpoch) return;
                 setStatus(error.message || 'Could not load roster.', 'error');
             });
     }
 
-    function shiftWeek(offsetDays) {
-        saveRoster({ silent: true }).finally(function() {
-            const date = parseLocalDate(currentWeekStart);
-            date.setDate(date.getDate() + offsetDays);
-            loadWeek(formatLocalIso(date));
+    function beginWeekNavigation() {
+        if (!pendingWeekOffset || weekNavInFlight) return;
+        clearTimeout(saveTimer);
+        const offset = pendingWeekOffset;
+        pendingWeekOffset = 0;
+        weekNavInFlight = true;
+
+        const fromWeek = displayedWeek;
+        const rowsSnapshot = collectRows();
+        const date = parseLocalDate(fromWeek);
+        date.setDate(date.getDate() + offset);
+        const targetWeek = formatLocalIso(date);
+
+        rosterEpoch += 1;
+        const epoch = rosterEpoch;
+        currentWeekStart = targetWeek;
+
+        saveRoster({ silent: true, weekStart: fromWeek, rows: rowsSnapshot }).finally(function() {
+            if (epoch !== rosterEpoch) {
+                weekNavInFlight = false;
+                return;
+            }
+            loadWeek(targetWeek, epoch).finally(function() {
+                weekNavInFlight = false;
+                if (pendingWeekOffset) beginWeekNavigation();
+            });
         });
+    }
+
+    function shiftWeek(offsetDays) {
+        pendingWeekOffset += offsetDays;
+        beginWeekNavigation();
     }
 
     rosterBody.addEventListener('click', function(event) {
